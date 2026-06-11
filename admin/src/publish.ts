@@ -18,7 +18,6 @@ export type PublishStatus = {
   lastError: string | null;
   pendingChanges: number;    // changes since last successful push
   inFlight: boolean;
-  nextRetryAt: string | null;
 };
 
 const status: PublishStatus = {
@@ -27,7 +26,6 @@ const status: PublishStatus = {
   lastError: null,
   pendingChanges: 0,
   inFlight: false,
-  nextRetryAt: null,
 };
 
 export function getStatus(): PublishStatus {
@@ -56,7 +54,6 @@ async function runPublish(): Promise<void> {
   if (!BUCKET) return;
   if (status.inFlight) return;
   status.inFlight = true;
-  status.nextRetryAt = null;
   const pendingAtStart = status.pendingChanges;
   try {
     const state = await load();
