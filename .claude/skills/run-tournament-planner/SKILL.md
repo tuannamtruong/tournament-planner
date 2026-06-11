@@ -1,6 +1,7 @@
 ---
 name: run-tournament-planner
 description: Build, run, smoke-test, and develop the tournament-planner Fastify admin app + S3-bound result site. Use when asked to start the admin, run vitest, drive the API, exercise pairing/standings/publish, or screenshot the result viewer.
+allowed-tools: Bash(curl:*), Bash(ping:*), Bash(node:*), Bash(lsof:*)
 ---
 
 A local Node + Fastify admin app on `http://localhost:37325` that owns
