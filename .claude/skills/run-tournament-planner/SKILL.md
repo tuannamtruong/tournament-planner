@@ -200,6 +200,24 @@ Key invariants — break these and the project's design breaks:
 
 For the full architectural rationale see `CLAUDE.md` at the repo root.
 
+## Further reading
+
+The skill keeps the operational essentials. Reach for these when the question
+goes beyond running the app:
+
+- **`docs/API-endpoints.md`** — every HTTP route with its body shape. Read
+  before extending `driver.mjs` or curling a route the smoke flow doesn't
+  cover.
+- **`docs/Architecture.md`** — full S3 layout diagram, per-object
+  `Cache-Control` budget, and the "why this shape" rationale (single operator
+  + S3-only + offline-tolerant). Note: this doc still says publishing is
+  "debounced 500 ms" — that is stale; the live behavior is operator-triggered
+  via the "Force publish" button (`publish.ts` → `forcePush()`).
+- **`docs/Dev-deploy-test.md`** — the human `pnpm dev` / `/view/` preview
+  loop (the skill already covers this) plus the AWS bring-up flow
+  (`deploy/bootstrap-aws.sh`, `deploy/publish-static.sh`). Read before
+  touching anything under `deploy/`.
+
 ## Gotchas
 
 - **`tsx` forks a node grandchild that escapes the spawn's process group.**
