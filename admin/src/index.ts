@@ -62,7 +62,7 @@ await app.register(publishRoutes);
 startLocalSnapshots();
 startRemoteBackups();
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 37325);
 await app.listen({ port, host: '127.0.0.1' });
 
 const status = getStatus();

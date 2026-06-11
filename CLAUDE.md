@@ -5,7 +5,7 @@ A small web app for running a badminton-style tournament (~100–500 participant
 Two surfaces, in different places:
 
 - **Public site** — read-only, hosted as static files on **S3 with website hosting enabled**. Accessed via the auto-generated endpoint, e.g. `http://tp-public-<sfx>.s3-website.eu-central-1.amazonaws.com` (HTTP only, no custom domain, no CDN). Two pages: `index.html` (group stage) and `knockout.html` (bracket).
-- **Admin app** — runs **locally on the tournament director's laptop** at `http://localhost:3000`. Owns the canonical tournament data as a JSON file. Imports participants, builds groups, runs pairings, enters scores, manages the knockout. On every change it derives view JSONs and pushes them to S3 using an IAM user.
+- **Admin app** — runs **locally on the tournament director's laptop** at `http://localhost:37325`. Owns the canonical tournament data as a JSON file. Imports participants, builds groups, runs pairings, enters scores, manages the knockout. On every change it derives view JSONs and pushes them to S3 using an IAM user.
 
 **There is no backend in AWS.** S3 stores static HTML/JS plus a handful of JSON files. No CloudFront, no ACM cert, no Route 53.
 
@@ -20,7 +20,7 @@ Two surfaces, in different places:
 
 ## Features
 
-### Admin (`http://localhost:3000`)
+### Admin (`http://localhost:37325`)
 
 Single-page UI with tabbed sections in `admin/public/index.html`:
 
@@ -42,7 +42,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
 
 ```
 [Director's laptop]
-  Node + Fastify on localhost:3000
+  Node + Fastify on localhost:37325
    ├─ admin browser UI (admin/public/)
    ├─ admin/data/tournament.json   ← single source of truth
    ├─ pairing engine (round_robin / swiss / manual)
@@ -286,15 +286,15 @@ All responses are JSON. State-changing requests trigger `schedulePublish()` via 
 pnpm i                # or: npm i
 
 # Run the local admin app
-pnpm dev              # tsx watch admin/src/index.ts → http://localhost:3000
+pnpm dev              # tsx watch admin/src/index.ts → http://localhost:37325
 
 # Preview the public site against live data (no S3 needed)
 # The admin app mounts `public-site/` at /view/ and serves the same derived
 # view JSONs (version/groups/knockout) at /view/data/*.json that the publish
 # loop would push to S3. Same-origin, same shape, same Cache-Control headers —
 # the only thing that's different is the URL.
-#   open http://localhost:3000/view/           # spectator's index.html
-#   open http://localhost:3000/view/knockout.html
+#   open http://localhost:37325/view/           # spectator's index.html
+#   open http://localhost:37325/view/knockout.html
 # Updates appear on the next 15 s poll after each admin edit. No S3, no
 # fixture files to maintain.
 
@@ -370,7 +370,7 @@ Verify by opening the printed website URL — you should see an empty group-stag
 **Every working session:**
 
 ```bash
-pnpm dev                                    # admin app on http://localhost:3000
+pnpm dev                                    # admin app on http://localhost:37325
 ```
 
 Header status light:

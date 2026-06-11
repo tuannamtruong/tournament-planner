@@ -8,7 +8,7 @@ PKG := $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo npm)
 -include .env
 export
 
-PORT ?= 3000
+PORT ?= 37325
 BASE := http://localhost:$(PORT)
 
 .DEFAULT_GOAL := help
