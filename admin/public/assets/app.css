@@ -137,6 +137,26 @@ th { background: #f3f4f6; font-weight: 600; }
 }
 .card h3 { margin-top: 0; }
 
+#groups-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+#groups-list > .card { margin-bottom: 0; }
+@media (max-width: 800px) {
+  #groups-list { grid-template-columns: 1fr; }
+}
+
+.member-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+.member-list li {
+  padding: 0.1rem 0;
+  font-size: 0.9rem;
+}
+
 .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .muted { color: var(--muted); font-size: 0.85rem; }
 

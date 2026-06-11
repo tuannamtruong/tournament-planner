@@ -90,6 +90,11 @@
         <div class="form-break"></div>
         <input name="name" placeholder="Group name (auto)" required>
         <button type="submit">Create group</button>
+        <div class="form-break"></div>
+        <label>Players per group:
+          <input name="playersPerGroup" type="number" min="2" value="4" style="width: 4rem">
+        </label>
+        <button type="button" id="auto-generate-groups">Generate groups and participants</button>
       </form>
       <p class="hint">Set category + one or more classes to restrict who can join. Leave classes empty to allow any.</p>
       <div id="groups-list"></div>

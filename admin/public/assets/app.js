@@ -179,11 +179,20 @@ function renderGroups() {
     const restricted = !!(g.category || classList(g).length);
     const tag = [g.category, classList(g).join('/')].filter(Boolean).join('-');
 
+    const sortedMembers = g.members
+      .map(id => state.participants.find(p => p.id === id))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     return el('div', { class: 'card' },
       el('h3', {}, `${g.name} `, el('span', { class: 'muted' }, `(${groupLabel(g)})`)),
-      el('div', { class: 'row' },
+      el('div', {},
         el('strong', {}, 'Members:'),
-        el('span', {}, g.members.map(nameOf).join(', ') || '(none)'),
+        sortedMembers.length === 0
+          ? el('div', { class: 'muted' }, '(none)')
+          : el('ul', { class: 'member-list' },
+              ...sortedMembers.map(p => el('li', {}, p.name)),
+            ),
       ),
       el('details', {
         ...(groupDetailsOpen.has(g.id) ? { open: true } : {}),
@@ -279,6 +288,55 @@ $('#add-group').addEventListener('submit', async (e) => {
     members: [],
   });
   e.target.reset();
+  await refresh();
+  syncDefaultGroupName();
+});
+
+$('#auto-generate-groups').addEventListener('click', async () => {
+  const form = $('#add-group');
+  const fd = new FormData(form);
+  const category = fd.get('category') || '';
+  const classes = [...fd.getAll('classes')].map(String);
+  const mode = fd.get('mode') || 'round_robin';
+  const playersPerGroup = Number(fd.get('playersPerGroup') || 0);
+
+  if (!category) return alert('Pick a category first.');
+  if (!Number.isFinite(playersPerGroup) || playersPerGroup < 2) {
+    return alert('Players per group must be at least 2.');
+  }
+
+  const claimed = new Set(state.groups.flatMap(g => g.members));
+  const eligible = state.participants.filter(p => {
+    if (claimed.has(p.id)) return false;
+    if (p.category !== category) return false;
+    if (classes.length && !classes.includes(p.class)) return false;
+    return true;
+  });
+
+  const numGroups = Math.floor(eligible.length / playersPerGroup);
+  if (numGroups === 0) {
+    return alert(`Need ${playersPerGroup} eligible participants; have ${eligible.length}.`);
+  }
+  const leftover = eligible.length - numGroups * playersPerGroup;
+  const msg = `Create ${numGroups} group(s) of ${playersPerGroup}?`
+    + (leftover ? ` ${leftover} participant(s) will be left unassigned.` : '');
+  if (!confirm(msg)) return;
+
+  // Snake-seed across groups: top seeds spread evenly. Unseeded (seed===0)
+  // sort to the end so they fill the lowest slots.
+  const ranked = [...eligible].sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
+  const buckets = Array.from({ length: numGroups }, () => []);
+  for (let i = 0; i < numGroups * playersPerGroup; i++) {
+    const lap = Math.floor(i / numGroups);
+    const col = i % numGroups;
+    const idx = lap % 2 === 0 ? col : numGroups - 1 - col;
+    buckets[idx].push(ranked[i].id);
+  }
+
+  for (const members of buckets) {
+    const name = defaultGroupName(category, classes);
+    state = await post('/api/groups', { name, mode, category, classes, members });
+  }
   await refresh();
   syncDefaultGroupName();
 });
