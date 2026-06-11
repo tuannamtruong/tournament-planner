@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadTopLevelAndData",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::BUCKET_NAME/index.html",
+        "arn:aws:s3:::BUCKET_NAME/knockout.html",
+        "arn:aws:s3:::BUCKET_NAME/assets/*",
+        "arn:aws:s3:::BUCKET_NAME/data/*"
+      ]
+    }
+  ]
+}

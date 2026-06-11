@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tournament — Knockout</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <header>
+    <h1 id="title">Tournament</h1>
+    <nav>
+      <a href="index.html">Group stage</a>
+      <a href="knockout.html" class="active">Knockout</a>
+    </nav>
+    <span id="updated" class="muted"></span>
+  </header>
+  <main id="bracket"></main>
+  <script type="module">
+    import { startPolling } from './assets/poll.js';
+    import { renderKnockout } from './assets/render-knockout.js';
+    startPolling('knockout.json', (data) => {
+      renderKnockout(document.getElementById('bracket'), data);
+    });
+  </script>
+</body>
+</html>

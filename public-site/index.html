@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tournament — Group Stage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <header>
+    <h1 id="title">Tournament</h1>
+    <nav>
+      <a href="index.html" class="active">Group stage</a>
+      <a href="knockout.html">Knockout</a>
+    </nav>
+    <span id="updated" class="muted"></span>
+  </header>
+  <main id="groups"></main>
+  <script type="module">
+    import { startPolling } from './assets/poll.js';
+    import { renderGroups } from './assets/render-groups.js';
+    startPolling('groups.json', (data) => {
+      document.getElementById('title').textContent = data.tournament || 'Tournament';
+      renderGroups(document.getElementById('groups'), data.groups || []);
+    });
+  </script>
+</body>
+</html>

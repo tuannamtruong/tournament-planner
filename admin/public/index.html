@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tournament Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header>
+    <h1 id="tournament-name">Tournament Admin</h1>
+    <div class="publish-status">
+      <span id="status-dot" class="dot"></span>
+      <span id="status-text">…</span>
+      <button id="force-publish" type="button">Force publish</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <a data-tab="participants" class="active">Participants</a>
+    <a data-tab="groups">Groups</a>
+    <a data-tab="pairings">Pairings</a>
+    <a data-tab="scoring">Scoring</a>
+    <a data-tab="bracket">Bracket</a>
+    <a data-tab="settings">Settings</a>
+  </nav>
+
+  <main>
+    <section data-tab="participants" class="active">
+      <h2>Participants</h2>
+      <form id="add-participant">
+        <input name="name" placeholder="Name" required>
+        <input name="club" placeholder="Club">
+        <select name="category">
+          <option value="">Category</option>
+          <option value="MS">MS</option>
+          <option value="WS">WS</option>
+          <option value="MD">MD</option>
+          <option value="WD">WD</option>
+          <option value="MX">MX</option>
+        </select>
+        <select name="class">
+          <option value="">Class</option>
+          <option value="S">S</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+        </select>
+        <input name="seed" type="number" min="0" placeholder="Seed">
+        <button type="submit">Add</button>
+      </form>
+      <details>
+        <summary>Import CSV (columns: name, club, category, class, seed)</summary>
+        <form id="import-csv">
+          <textarea name="csv" rows="6" placeholder="name,club,category,class,seed&#10;Jane Doe,TV Karlsruhe,WS,B,1"></textarea>
+          <button type="submit">Import</button>
+        </form>
+      </details>
+      <table id="participants-table">
+        <thead><tr><th>Name</th><th>Club</th><th>Cat.</th><th>Class</th><th>Seed</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section data-tab="groups">
+      <h2>Groups</h2>
+      <form id="add-group">
+        <input name="name" placeholder="Group name (e.g. Group A)" required>
+        <select name="category">
+          <option value="">Category</option>
+          <option value="MS">MS</option>
+          <option value="WS">WS</option>
+          <option value="MD">MD</option>
+          <option value="WD">WD</option>
+          <option value="MX">MX</option>
+        </select>
+        <fieldset class="inline-checks" data-name="classes">
+          <legend>Classes</legend>
+          <label><input type="checkbox" name="classes" value="S"> S</label>
+          <label><input type="checkbox" name="classes" value="A"> A</label>
+          <label><input type="checkbox" name="classes" value="B"> B</label>
+          <label><input type="checkbox" name="classes" value="C"> C</label>
+          <label><input type="checkbox" name="classes" value="D"> D</label>
+        </fieldset>
+        <select name="mode">
+          <option value="round_robin">Round robin</option>
+          <option value="swiss">Swiss</option>
+          <option value="manual">Manual</option>
+          <option value="table">Table</option>
+        </select>
+        <button type="submit">Create group</button>
+      </form>
+      <p class="hint">Set category + one or more classes to restrict who can join. Leave classes empty to allow any.</p>
+      <div id="groups-list"></div>
+    </section>
+
+    <section data-tab="pairings">
+      <h2>Pairings</h2>
+      <p class="hint">For round-robin and Swiss groups, click "Generate next round". Manual / Table groups: add matches in Scoring.</p>
+      <div id="pairings-list"></div>
+    </section>
+
+    <section data-tab="scoring">
+      <h2>Scoring</h2>
+      <div id="scoring-list"></div>
+    </section>
+
+    <section data-tab="bracket">
+      <h2>Knockout bracket</h2>
+      <div id="bracket-controls">
+        <form id="create-bracket">
+          <label>Size:
+            <select name="size">
+              <option value="4">4</option>
+              <option value="8" selected>8</option>
+              <option value="16">16</option>
+              <option value="32">32</option>
+            </select>
+          </label>
+          <p class="hint">Seeds the bracket from the participants' seed field (lowest = top seed). Replaces any existing bracket.</p>
+          <button type="submit">Create / replace bracket</button>
+          <button type="button" id="delete-bracket" class="danger">Delete bracket</button>
+        </form>
+      </div>
+      <div id="bracket-view"></div>
+    </section>
+
+    <section data-tab="settings">
+      <h2>Settings</h2>
+      <form id="rename">
+        <label>Tournament name:
+          <input name="name" required>
+        </label>
+        <button type="submit">Save</button>
+      </form>
+      <div class="diagnostics">
+        <h3>Publish</h3>
+        <pre id="publish-debug"></pre>
+        <button id="push-backup" type="button">Push backup snapshot to S3</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/assets/app.js"></script>
+</body>
+</html>
