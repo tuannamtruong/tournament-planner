@@ -1,5 +1,5 @@
 ---
-name: run-tournament-planner
+name: dev
 description: Build, run, smoke-test, and develop the tournament-planner Fastify admin app + S3-bound result site. Use when asked to start the admin, run vitest, drive the API, exercise pairing/standings/publish, or screenshot the result viewer.
 allowed-tools: Bash(curl:*), Bash(ping:*), Bash(node:*), Bash(lsof:*)
 ---
@@ -9,7 +9,7 @@ A local Node + Fastify admin app on `http://localhost:37325` that owns
 JSONs the result site (S3-website-hosted) polls. Everything in one repo, no
 build step, no hosted backend.
 
-Drive it via `.claude/skills/run-tournament-planner/driver.mjs` — that script
+Drive it via `.claude/skills/dev/driver.mjs` — that script
 boots the real server on a random free port against a temp `TP_DATA_FILE`,
 walks the full lifecycle (rename → participants → group → next-round → score
 match → knockout → fetch `/view/data/*.json`), and asserts on responses. All
@@ -47,7 +47,7 @@ run. To wipe it: `rm -rf admin/data/`.
 ### Smoke the whole stack
 
 ```bash
-node .claude/skills/run-tournament-planner/driver.mjs
+node .claude/skills/dev/driver.mjs
 ```
 
 What it does — fully isolated, ~3 s, no AWS, no port collision with a `pnpm
@@ -77,7 +77,7 @@ Exits 0 on success, 1 on any assertion fail with `✗ driver failed: …`.
 ### Long-running server for poking by hand or with curl
 
 ```bash
-node .claude/skills/run-tournament-planner/driver.mjs serve --port 38400
+node .claude/skills/dev/driver.mjs serve --port 38400
 # admin   → http://localhost:38400/
 # viewer  → http://localhost:38400/view/
 # Ctrl-C to stop and clean the temp data dir.
@@ -89,7 +89,7 @@ Same isolation (temp data file, no S3). Use this when you want to `curl
 
 ### Verbose mode
 
-`TP_DRIVER_VERBOSE=1 node .claude/skills/run-tournament-planner/driver.mjs`
+`TP_DRIVER_VERBOSE=1 node .claude/skills/dev/driver.mjs`
 echoes the Fastify per-request logs (helpful when an assertion fails and you
 need to see which response went wrong).
 

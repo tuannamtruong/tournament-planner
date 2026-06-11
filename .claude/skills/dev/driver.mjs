@@ -4,9 +4,9 @@
 // so it never collides with a `pnpm dev` the operator already has running.
 //
 // Usage:
-//   node .claude/skills/run-tournament-planner/driver.mjs              # full smoke
-//   node .claude/skills/run-tournament-planner/driver.mjs serve        # boot + idle
-//   node .claude/skills/run-tournament-planner/driver.mjs --port 38000 # override
+//   node .claude/skills/dev/driver.mjs              # full smoke
+//   node .claude/skills/dev/driver.mjs serve        # boot + idle
+//   node .claude/skills/dev/driver.mjs --port 38000 # override
 //
 // In `serve` mode the script keeps the server up so you can curl/chromium-cli
 // against it; Ctrl-C stops it and cleans the temp dir.
