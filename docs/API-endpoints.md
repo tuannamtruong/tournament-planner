@@ -1,6 +1,6 @@
 ## HTTP API
 
-All responses are JSON. State-changing requests trigger `schedulePublish()` via a Fastify `onResponse` hook (except `/api/publish/*` itself).
+All responses are JSON. State-changing requests bump `pendingChanges` via a Fastify `onResponse` hook (except `/api/publish/*` itself); the actual S3 push is operator-triggered through `POST /api/publish/force`.
 
 ### State
 - `GET    /api/state` — full tournament JSON
@@ -16,11 +16,11 @@ All responses are JSON. State-changing requests trigger `schedulePublish()` via 
 - `POST   /api/groups` `{ name, mode, category?, classes?, members? }` — `classes` is an array of class codes; empty array means "any class"
 - `PATCH  /api/groups/:id` — partial of `{ name, mode, category, classes, members }`
 - `DELETE /api/groups/:id`
-- `POST   /api/groups/:id/next-round` — generate via the group's `mode`; throws on `manual`/`table` and on schedule-complete
+- `POST   /api/groups/:id/next-round` — generate via the group's `mode`; throws on `manual` and on schedule-complete
 
 ### Matches
 - `PATCH  /api/groups/:gid/matches/:mid` `{ score?, status?, court? }` — auto-stamps `startedAt` on first `live`, `finishedAt` on first `done`
-- `POST   /api/groups/:gid/matches` `{ p1, p2, court?, roundNo? }` — manual/table groups; round is created if absent
+- `POST   /api/groups/:gid/matches` `{ p1, p2, court?, roundNo? }` — manual groups; round is created if absent
 
 ### Knockout
 - `POST   /api/knockout` `{ size, seeds? }` — creates an empty bracket of the given size and fills round 1 by standard single-elim seeding from the `seeds` array
@@ -28,8 +28,8 @@ All responses are JSON. State-changing requests trigger `schedulePublish()` via 
 - `DELETE /api/knockout`
 
 ### Publish
-- `GET    /api/publish/status` — `{ configured, lastSuccess, lastError, pendingChanges, inFlight, nextRetryAt }`
-- `POST   /api/publish/force` — cancels any pending debounce/retry and pushes synchronously; 502 with error message on failure
+- `GET    /api/publish/status` — `{ configured, lastSuccess, lastError, pendingChanges, inFlight }`
+- `POST   /api/publish/force` — pushes synchronously (`forcePush()` → `runPublish()`); 502 with error message on failure. No automatic retry — caller re-tries by clicking again.
 - `POST   /api/publish/backup` — manual push of `tournament.json` snapshot to `private/backups/`
 
 ### Local viewer (dev preview of the result site)

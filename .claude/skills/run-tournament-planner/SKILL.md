@@ -210,9 +210,7 @@ goes beyond running the app:
   cover.
 - **`docs/Architecture.md`** — full S3 layout diagram, per-object
   `Cache-Control` budget, and the "why this shape" rationale (single operator
-  + S3-only + offline-tolerant). Note: this doc still says publishing is
-  "debounced 500 ms" — that is stale; the live behavior is operator-triggered
-  via the "Force publish" button (`publish.ts` → `forcePush()`).
+  + S3-only + offline-tolerant).
 - **`docs/Dev-deploy-test.md`** — the human `pnpm dev` / `/view/` preview
   loop (the skill already covers this) plus the AWS bring-up flow
   (`deploy/bootstrap-aws.sh`, `deploy/publish-static.sh`). Read before
