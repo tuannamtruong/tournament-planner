@@ -32,7 +32,7 @@ async function refresh() {
   if (renamerInput && document.activeElement !== renamerInput) renamerInput.value = state.tournament.name;
   renderParticipants();
   renderGroups();
-  renderPairings();
+  renderGroupstage();
   renderScoring();
   renderBracket();
   const nameInput = $('#add-group')?.elements.name;
@@ -283,19 +283,212 @@ $('#add-group').addEventListener('submit', async (e) => {
   syncDefaultGroupName();
 });
 
-// -- Pairings -----------------------------------------------------------------
-function renderPairings() {
-  const root = $('#pairings-list');
-  root.replaceChildren(...state.groups.map(g => el('div', { class: 'card' },
-    el('h3', {}, `${g.name} `, el('span', { class: 'muted' }, `(${groupLabel(g)})`)),
-    el('p', { class: 'muted' }, `${g.rounds.length} round(s) generated`),
-    g.mode === 'round_robin' || g.mode === 'swiss'
-      ? el('button', { on: { click: async () => {
-          try { await post(`/api/groups/${g.id}/next-round`); await refresh(); }
-          catch (err) { alert(err.message); }
-        } } }, 'Generate next round')
-      : el('p', { class: 'muted' }, 'Add matches in Scoring tab.'),
+// -- Groupstage ---------------------------------------------------------------
+// Mirrors admin/src/standings.ts so the admin UI can show standings without
+// an extra API call. Keep these in sync.
+function setScore(m) {
+  let p1Sets = 0, p2Sets = 0, p1Pts = 0, p2Pts = 0;
+  for (const [a, b] of m.score) {
+    if (a > b) p1Sets++; else if (b > a) p2Sets++;
+    p1Pts += a; p2Pts += b;
+  }
+  return { p1Sets, p2Sets, p1Pts, p2Pts };
+}
+
+function doneMatches(g) {
+  const out = [];
+  for (const r of g.rounds) for (const m of r.matches) {
+    if (m.status === 'done' && m.score.length && m.p2 !== '__bye__' && m.p1 !== '__bye__') out.push(m);
+  }
+  return out;
+}
+
+function headToHead(aId, bId, g) {
+  let aWon = 0, bWon = 0;
+  for (const m of doneMatches(g)) {
+    const isAB = (m.p1 === aId && m.p2 === bId) || (m.p1 === bId && m.p2 === aId);
+    if (!isAB) continue;
+    const { p1Sets, p2Sets } = setScore(m);
+    const aIsP1 = m.p1 === aId;
+    if ((p1Sets > p2Sets && aIsP1) || (p2Sets > p1Sets && !aIsP1)) aWon++;
+    else if (p1Sets !== p2Sets) bWon++;
+  }
+  return bWon - aWon;
+}
+
+function computeStandings(g) {
+  const tally = new Map();
+  for (const id of g.members) {
+    const p = state.participants.find(p => p.id === id);
+    if (!p) continue;
+    tally.set(id, {
+      participantId: id, name: p.name,
+      played: 0, won: 0, lost: 0,
+      setsWon: 0, setsLost: 0,
+      pointsWon: 0, pointsLost: 0,
+    });
+  }
+  for (const m of doneMatches(g)) {
+    const a = tally.get(m.p1), b = tally.get(m.p2);
+    if (!a || !b) continue;
+    const { p1Sets, p2Sets, p1Pts, p2Pts } = setScore(m);
+    a.played++; b.played++;
+    a.setsWon += p1Sets; a.setsLost += p2Sets;
+    b.setsWon += p2Sets; b.setsLost += p1Sets;
+    a.pointsWon += p1Pts; a.pointsLost += p2Pts;
+    b.pointsWon += p2Pts; b.pointsLost += p1Pts;
+    if (p1Sets > p2Sets) { a.won++; b.lost++; }
+    else if (p2Sets > p1Sets) { b.won++; a.lost++; }
+  }
+  const rows = [...tally.values()];
+  rows.sort((x, y) => {
+    if (y.won !== x.won) return y.won - x.won;
+    const xSd = x.setsWon - x.setsLost, ySd = y.setsWon - y.setsLost;
+    if (ySd !== xSd) return ySd - xSd;
+    const xPd = x.pointsWon - x.pointsLost, yPd = y.pointsWon - y.pointsLost;
+    if (yPd !== xPd) return yPd - xPd;
+    return headToHead(x.participantId, y.participantId, g);
+  });
+  return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+// Map "pId vs qId" -> done match (last entered wins if duplicates).
+function h2hIndex(g) {
+  const idx = new Map();
+  for (const m of doneMatches(g)) {
+    idx.set(`${m.p1}|${m.p2}`, m);
+  }
+  return idx;
+}
+
+function renderStandingsTable(g) {
+  const rows = computeStandings(g);
+  if (rows.length === 0) return el('p', { class: 'muted' }, 'No members yet.');
+  return el('table', { class: 'standings' },
+    el('thead', {}, el('tr', {},
+      el('th', { class: 'num' }, '#'),
+      el('th', {}, 'Player'),
+      el('th', { class: 'num' }, 'P'),
+      el('th', { class: 'num' }, 'W'),
+      el('th', { class: 'num' }, 'L'),
+      el('th', { class: 'num' }, 'Pts'),
+      el('th', { class: 'num' }, 'Sets+'),
+      el('th', { class: 'num' }, 'Set diff'),
+      el('th', { class: 'num' }, 'Pt diff'),
+    )),
+    el('tbody', {}, ...rows.map(r => el('tr', r.rank === 1 && r.played > 0 ? { class: 'top-pts' } : {},
+      el('td', { class: 'num' }, String(r.rank)),
+      el('td', {}, r.name),
+      el('td', { class: 'num' }, String(r.played)),
+      el('td', { class: 'num' }, String(r.won)),
+      el('td', { class: 'num' }, String(r.lost)),
+      el('td', { class: 'num' }, String(r.won)),
+      el('td', { class: 'num' }, String(r.setsWon)),
+      el('td', { class: 'num' }, String(r.setsWon - r.setsLost)),
+      el('td', { class: 'num' }, String(r.pointsWon - r.pointsLost)),
+    ))),
+  );
+}
+
+function renderH2H(g) {
+  if (g.members.length < 2) return null;
+  const ordered = computeStandings(g).map(r => r.participantId);
+  const idx = h2hIndex(g);
+  const cell = (rowId, colId) => {
+    if (rowId === colId) return el('td', { class: 'self' }, '—');
+    const m = idx.get(`${rowId}|${colId}`) ?? idx.get(`${colId}|${rowId}`);
+    if (!m) return el('td', { class: 'empty' }, '·');
+    const { p1Sets, p2Sets } = setScore(m);
+    const rowIsP1 = m.p1 === rowId;
+    const a = rowIsP1 ? p1Sets : p2Sets;
+    const b = rowIsP1 ? p2Sets : p1Sets;
+    return el('td', { class: a > b ? 'win' : '' }, `${a}–${b}`);
+  };
+  return el('details', { open: true },
+    el('summary', {}, 'Head-to-head'),
+    el('table', { class: 'h2h' },
+      el('thead', {}, el('tr', {},
+        el('th', {}, ''),
+        ...ordered.map(id => el('th', {}, nameOf(id))),
+      )),
+      el('tbody', {}, ...ordered.map(rowId => el('tr', {},
+        el('th', { class: 'rowhead' }, nameOf(rowId)),
+        ...ordered.map(colId => cell(rowId, colId)),
+      ))),
+    ),
+  );
+}
+
+function renderGroupstageMatches(g) {
+  if (g.rounds.length === 0) return el('p', { class: 'muted' }, 'No rounds yet.');
+  return el('div', {}, ...g.rounds.map(r => el('div', {},
+    el('h4', {}, `Round ${r.roundNo}`),
+    ...r.matches.map(m => el('div', { class: 'row', style: 'gap:0.75rem; padding:0.2rem 0;' },
+      el('span', { class: 'muted', style: 'min-width:3rem' }, m.court ? `Court ${m.court}` : ''),
+      el('span', {}, nameOf(m.p1)),
+      el('span', { class: 'muted' }, 'vs'),
+      el('span', {}, nameOf(m.p2)),
+      el('span', { class: 'muted' }, m.score.map(([a, b]) => `${a}-${b}`).join(', ')),
+      el('span', { class: 'status ' + m.status, style: 'font-size:0.75rem; text-transform:uppercase;' }, m.status),
+    )),
   )));
+}
+
+function renderAddMatchForm(g, container) {
+  if (g.members.length < 2) {
+    return el('p', { class: 'muted' }, 'Add at least two members to create matches.');
+  }
+  const opts = () => g.members.map(id => el('option', { value: id }, nameOf(id)));
+  const p1Sel = el('select', {}, ...opts());
+  const p2Sel = el('select', {}, ...opts());
+  const nextRound = (g.rounds.at(-1)?.roundNo ?? 0) + 1;
+  const roundIn = el('input', { type: 'number', min: 1, value: nextRound, style: 'width:5rem' });
+  const courtIn = el('input', { placeholder: 'Court', style: 'width:5rem' });
+  return el('div', { class: 'row', style: 'margin-top:0.5rem; gap:0.5rem; flex-wrap:wrap' },
+    el('em', {}, 'Add match: '),
+    p1Sel, el('span', {}, ' vs '), p2Sel,
+    el('span', {}, ' round '), roundIn,
+    courtIn,
+    el('button', { on: { click: async () => {
+      if (p1Sel.value === p2Sel.value) return alert('Pick two different players.');
+      try {
+        await post(`/api/groups/${g.id}/matches`, {
+          p1: p1Sel.value, p2: p2Sel.value,
+          roundNo: Number(roundIn.value),
+          court: courtIn.value,
+        });
+        await refresh();
+      } catch (err) { alert(err.message); }
+    } } }, 'Add'),
+  );
+}
+
+function renderGroupstage() {
+  const root = $('#groupstage-list');
+  if (state.groups.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet. Create one in the Groups tab.'));
+    return;
+  }
+  root.replaceChildren(...state.groups.map(g => {
+    const canGenerate = g.mode === 'round_robin' || g.mode === 'swiss';
+    return el('div', { class: 'card' },
+      el('h3', {}, `${g.name} `, el('span', { class: 'muted' }, `(${groupLabel(g)})`)),
+      renderStandingsTable(g),
+      renderH2H(g),
+      el('h4', {}, 'Pairings'),
+      renderGroupstageMatches(g),
+      el('div', { class: 'row', style: 'gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap' },
+        canGenerate
+          ? el('button', { on: { click: async () => {
+              try { await post(`/api/groups/${g.id}/next-round`); await refresh(); }
+              catch (err) { alert(err.message); }
+            } } }, 'Generate next round')
+          : null,
+        el('span', { class: 'muted' }, `${g.rounds.length} round(s) so far`),
+      ),
+      renderAddMatchForm(g),
+    );
+  }));
 }
 
 // -- Scoring ------------------------------------------------------------------
@@ -307,7 +500,6 @@ function renderScoring() {
       el('h4', {}, `Round ${r.roundNo}`),
       ...r.matches.map(m => renderMatchRow(g, m)),
     )),
-    g.mode === 'manual' ? renderAddManualMatch(g) : null,
   )));
 }
 
@@ -357,24 +549,6 @@ function renderMatchRow(g, m) {
       el('button', { on: { click: () => save('done') } }, '✓'),
       el('span', { class: 'status ' + m.status }, m.status),
     ),
-  );
-}
-
-function renderAddManualMatch(g) {
-  const opts = g.members.map(id => el('option', { value: id }, nameOf(id)));
-  const p1Sel = el('select', {}, ...opts.map(o => o.cloneNode(true)));
-  const p2Sel = el('select', {}, ...opts.map(o => o.cloneNode(true)));
-  const roundIn = el('input', { type: 'number', min: 1, value: (g.rounds.at(-1)?.roundNo ?? 0) + 1, style: 'width:5rem' });
-  return el('div', { class: 'row', style: 'margin-top:0.5rem' },
-    el('em', {}, 'Add match: '), p1Sel, el('span', {}, ' vs '), p2Sel,
-    el('span', {}, ' round '), roundIn,
-    el('button', { on: { click: async () => {
-      if (p1Sel.value === p2Sel.value) return alert('Pick two different players');
-      await post(`/api/groups/${g.id}/matches`, {
-        p1: p1Sel.value, p2: p2Sel.value, roundNo: Number(roundIn.value),
-      });
-      await refresh();
-    } } }, 'Add'),
   );
 }
 

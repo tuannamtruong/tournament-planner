@@ -177,6 +177,16 @@ th { background: #f3f4f6; font-weight: 600; }
 
 pre { background: #f3f4f6; padding: 0.75rem; border-radius: 4px; overflow: auto; font-size: 0.8rem; }
 
+.standings th, .standings td { padding: 0.35rem 0.5rem; font-size: 0.85rem; }
+.standings td.num, .standings th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.standings tr.top-pts td { background: #f0fdf4; }
+
+.h2h { font-size: 0.8rem; width: auto; }
+.h2h th, .h2h td { padding: 0.3rem 0.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+.h2h th.rowhead { text-align: left; }
+.h2h td.self { background: #f3f4f6; color: var(--muted); }
+.h2h td.empty { color: var(--muted); }
+
 details { margin-bottom: 1rem; }
 summary { cursor: pointer; padding: 0.4rem 0; color: var(--muted); }
 
