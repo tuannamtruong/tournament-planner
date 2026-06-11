@@ -66,7 +66,6 @@
     <section data-tab="groups">
       <h2>Groups</h2>
       <form id="add-group">
-        <input name="name" placeholder="Group name (e.g. Group A)" required>
         <select name="category">
           <option value="">Category</option>
           <option value="MS">MS</option>
@@ -87,8 +86,9 @@
           <option value="round_robin">Round robin</option>
           <option value="swiss">Swiss</option>
           <option value="manual">Manual</option>
-          <option value="table">Table</option>
         </select>
+        <div class="form-break"></div>
+        <input name="name" placeholder="Group name (auto)" required>
         <button type="submit">Create group</button>
       </form>
       <p class="hint">Set category + one or more classes to restrict who can join. Leave classes empty to allow any.</p>
@@ -97,7 +97,7 @@
 
     <section data-tab="pairings">
       <h2>Pairings</h2>
-      <p class="hint">For round-robin and Swiss groups, click "Generate next round". Manual / Table groups: add matches in Scoring.</p>
+      <p class="hint">For round-robin and Swiss groups, click "Generate next round". Manual groups: add matches in Scoring.</p>
       <div id="pairings-list"></div>
     </section>
 

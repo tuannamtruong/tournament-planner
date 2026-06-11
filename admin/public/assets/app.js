@@ -35,6 +35,8 @@ async function refresh() {
   renderPairings();
   renderScoring();
   renderBracket();
+  const nameInput = $('#add-group')?.elements.name;
+  if (nameInput && document.activeElement !== nameInput) syncDefaultGroupName();
 }
 
 // -- Tabs ---------------------------------------------------------------------
@@ -58,10 +60,10 @@ async function refreshPublishStatus() {
       txt.textContent = 'AWS not configured (local only)';
     } else if (s.lastError) {
       dot.classList.add('red');
-      txt.textContent = `Push failed — ${s.lastError.slice(0, 60)}${s.nextRetryAt ? ` (retrying)` : ''}`;
+      txt.textContent = `Push failed — ${s.lastError.slice(0, 60)}`;
     } else if (s.pendingChanges > 0 || s.inFlight) {
       dot.classList.add('amber');
-      txt.textContent = s.inFlight ? 'Pushing…' : `${s.pendingChanges} change(s) queued`;
+      txt.textContent = s.inFlight ? 'Pushing…' : `${s.pendingChanges} unpushed change(s)`;
     } else if (s.lastSuccess) {
       dot.classList.add('green');
       const ago = Math.round((Date.now() - new Date(s.lastSuccess).getTime()) / 1000);
@@ -227,6 +229,44 @@ function renderGroups() {
   }));
 }
 
+// Default name format: "<category>-<classes joined by /> <n>", where n is the
+// next sequence number among existing groups with the same category+classes.
+// Falls back to "Group <n>" when neither is set.
+function defaultGroupName(category, classes) {
+  const tag = [category, classes.join('/')].filter(Boolean).join('-') || 'Group';
+  const prefix = tag + ' ';
+  const taken = new Set(
+    (state?.groups ?? [])
+      .filter(g => (g.category || '') === category
+        && classList(g).join('/') === classes.join('/'))
+      .map(g => g.name),
+  );
+  let n = 1;
+  while (taken.has(prefix + n)) n++;
+  return prefix + n;
+}
+
+function readGroupFormSelection(form) {
+  const fd = new FormData(form);
+  return {
+    category: fd.get('category') || '',
+    classes: [...fd.getAll('classes')].map(String),
+  };
+}
+
+function syncDefaultGroupName() {
+  const form = $('#add-group');
+  if (!form) return;
+  const { category, classes } = readGroupFormSelection(form);
+  form.elements.name.value = defaultGroupName(category, classes);
+}
+
+$('#add-group').addEventListener('change', (e) => {
+  if (e.target.name === 'category' || e.target.name === 'classes') {
+    syncDefaultGroupName();
+  }
+});
+
 $('#add-group').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
@@ -240,6 +280,7 @@ $('#add-group').addEventListener('submit', async (e) => {
   });
   e.target.reset();
   await refresh();
+  syncDefaultGroupName();
 });
 
 // -- Pairings -----------------------------------------------------------------
@@ -266,8 +307,7 @@ function renderScoring() {
       el('h4', {}, `Round ${r.roundNo}`),
       ...r.matches.map(m => renderMatchRow(g, m)),
     )),
-    (g.mode === 'manual' || g.mode === 'table')
-      ? renderAddManualMatch(g) : null,
+    g.mode === 'manual' ? renderAddManualMatch(g) : null,
   )));
 }
 

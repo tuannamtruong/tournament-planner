@@ -39,7 +39,7 @@ export const Round = z.object({
 });
 export type Round = z.infer<typeof Round>;
 
-export const GroupMode = z.enum(['round_robin', 'swiss', 'manual', 'table']);
+export const GroupMode = z.enum(['round_robin', 'swiss', 'manual']);
 export type GroupMode = z.infer<typeof GroupMode>;
 
 // A group is scoped to a single category but may span multiple classes

@@ -12,11 +12,11 @@ export type { Pairing };
  * - round_robin: pre-generates the whole schedule on round 1, then returns the
  *   matching round number from the precomputed schedule.
  * - swiss: computes one round at a time from current standings + history.
- * - manual / table: throws — pairings are added by hand.
+ * - manual: throws — pairings are added by hand.
  */
 export function generateNextRound(group: Group): Round {
-  if (group.mode === 'manual' || group.mode === 'table') {
-    throw new Error(`Group "${group.name}" is ${group.mode} — add matches manually.`);
+  if (group.mode === 'manual') {
+    throw new Error(`Group "${group.name}" is manual — add matches manually.`);
   }
   const nextRoundNo = (group.rounds.at(-1)?.roundNo ?? 0) + 1;
 
