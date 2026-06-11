@@ -43,7 +43,7 @@ typecheck: ## Type-check without emitting JS
 bootstrap: ## Create S3 bucket + IAM publisher user (idempotent)
 	bash deploy/bootstrap-aws.sh
 
-publish: ## Sync static public site (public-site/) to S3 — run after HTML/CSS/JS edits
+publish: ## Sync static result site (result-site/) to S3 — run after HTML/CSS/JS edits
 	bash deploy/publish-static.sh
 
 tear-down: ## Delete the S3 bucket + IAM user (interactive)

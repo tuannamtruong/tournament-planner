@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# One-shot provisioning for the public S3 bucket + IAM user.
+# One-shot provisioning for the result-site S3 bucket + IAM user.
 # Idempotent: re-running is safe; existing resources are detected and reused.
 #
 # Requires: aws CLI configured with admin-ish credentials (only needed once,
 # to create the publisher IAM user). After this, only the publisher key is used.
 #
 # Usage:
-#   REGION=eu-central-1 BUCKET=tp-public-myevent bash deploy/bootstrap-aws.sh
+#   REGION=eu-central-1 BUCKET=tp-result-myevent bash deploy/bootstrap-aws.sh
 # Or omit BUCKET to auto-generate a random suffix.
 #
 # On success it prints:
-#   - the public website URL
+#   - the result-site website URL
 #   - an aws_access_key_id / aws_secret_access_key block to paste into ~/.aws/credentials
 #   - the env vars to export
 
 set -euo pipefail
 
 REGION="${REGION:-eu-central-1}"
-BUCKET="${BUCKET:-tp-public-$(openssl rand -hex 4)}"
+BUCKET="${BUCKET:-tp-result-$(openssl rand -hex 4)}"
 IAM_USER="${IAM_USER:-tp-publisher-${BUCKET}}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -112,6 +112,6 @@ fi
 
 bold "Next steps:"
 echo "  1. (If a new access key was just printed) save it to ~/.aws/credentials."
-echo "  2. Sync the static public site:    pnpm publish-static"
+echo "  2. Sync the static result site:    pnpm publish-static"
 echo "  3. Start the local admin app:       pnpm dev"
 echo "  4. Open the public URL to verify:   $WEBSITE_URL"

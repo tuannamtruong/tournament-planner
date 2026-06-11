@@ -4,12 +4,12 @@ A small web app for running a badminton-style tournament (~100–500 participant
 
 Two surfaces, in different places:
 
-- **Public site** — read-only, hosted as static files on **S3 with website hosting enabled**. Accessed via the auto-generated endpoint, e.g. `http://tp-public-<sfx>.s3-website.eu-central-1.amazonaws.com` (HTTP only, no custom domain, no CDN). Two pages: `index.html` (group stage) and `knockout.html` (bracket).
-- **Admin app** — runs **locally on the tournament director's laptop** at `http://localhost:37325`. Owns the canonical tournament data as a JSON file. Imports participants, builds groups, runs pairings, enters scores, manages the knockout. On every change it derives view JSONs and pushes them to S3 using an IAM user.
+- **Result site** — read-only, hosted as static files on **S3 with website hosting enabled**. Accessed via the auto-generated endpoint, e.g. `http://tp-result-<sfx>.s3-website.eu-central-1.amazonaws.com` (HTTP only, no custom domain, no CDN). Two pages: `index.html` (group stage) and `knockout.html` (bracket).
+- **Admin site** — runs **locally on the tournament director's laptop** at `http://localhost:37325`. Owns the canonical tournament data as a JSON file. Imports participants, builds groups, runs pairings, enters scores, manages the knockout. On every change it derives view JSONs and pushes them to S3 using an IAM user.
 
 **There is no backend in AWS.** S3 stores static HTML/JS plus a handful of JSON files. No CloudFront, no ACM cert, no Route 53.
 
-> **HTTP-only note:** the S3 website endpoint serves over plain HTTP. Browsers show "not secure" in the address bar. Acceptable for an event with no logins on the public side and no sensitive data. If trust UX matters later, front the bucket with CloudFront + ACM.
+> **HTTP-only note:** the S3 website endpoint serves over plain HTTP. Browsers show "not secure" in the address bar. Acceptable for an event with no logins on the result site and no sensitive data. If trust UX matters later, front the bucket with CloudFront + ACM.
 
 ## Hard constraints
 
@@ -32,7 +32,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
 - **Settings** — rename the tournament. Manual **Push backup snapshot** button. Live JSON dump of the publish-status object for debugging.
 - **Header status light** — 🟢 synced / 🟡 queued or pushing / 🟡 "AWS not configured" / 🔴 push failed (retrying). **Force publish** button next to it.
 
-### Public site (S3)
+### Result site (S3)
 
 - **`index.html`** — one block per group: pre-computed standings table (rank, W, L, sets, points) + match grid (court, names, set scores, status).
 - **`knockout.html`** — column-per-round bracket, winner names bolded, set scores beneath.
@@ -51,7 +51,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
                               │
                               ▼
                   ┌──────────────────────────────────────────────┐
-                  │ S3 bucket: tp-public-<sfx>                   │
+                  │ S3 bucket: tp-result-<sfx>                   │
                   │ (website hosting enabled, public read on     │
                   │  index/knockout/assets/data only)            │
                   │  index.html, knockout.html  Cache-Control 1h │
@@ -72,7 +72,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
 |---|---|---|
 | Admin runs locally | No server to host, no admin auth needed, pairing logic just runs in Node, the DB is a file on the laptop | Hosted admin on Lightsail (~$3.50/mo, +Caddy +cookies +systemd +backups) — strictly more parts |
 | JSON file as source of truth | Single writer, <10 MB of data, trivial to inspect/edit in an emergency, same shape that gets pushed to S3 | SQLite: nicer queries, but adds a transform step before publishing and a native dep |
-| S3 website hosting, no CDN, no custom domain | Cheapest possible; zero servers; no DNS/cert setup; public URL is just the bucket endpoint | CloudFront + ACM + custom domain: prettier URL and HTTPS, but adds 3 services to provision and is unnecessary for one event |
+| S3 website hosting, no CDN, no custom domain | Cheapest possible; zero servers; no DNS/cert setup; result-site URL is just the bucket endpoint | CloudFront + ACM + custom domain: prettier URL and HTTPS, but adds 3 services to provision and is unnecessary for one event |
 | Poll `version.json` for updates | Cacheable, cheap, no SSE infrastructure, survives reconnects | SSE: needs a long-lived server we don't have anymore |
 | IAM user with `s3:PutObject` only | Least-privilege, keys live in `~/.aws/credentials` on the laptop | IAM role: only for EC2/Lambda; not applicable to a laptop |
 | Plain HTML + vanilla JS (no build) | ~8 screens total; React/Vite tax doesn't pay back | React+Vite: more dev tax than payoff at this scale |
@@ -129,7 +129,7 @@ scripts/                        one-off node scripts run via `npx tsx`
                                 into (category, class) and renamed XD → MX;
                                 idempotent (skips rows already split)
 
-public-site/                    static files uploaded to S3 (rarely change);
+result-site/                    static files uploaded to S3 (rarely change);
                                 also mounted by the admin app at /view/ for
                                 same-origin local preview against live data
   index.html                    group stage view
@@ -142,7 +142,7 @@ public-site/                    static files uploaded to S3 (rarely change);
 
 deploy/
   bootstrap-aws.sh              one-shot: bucket + website hosting + IAM user + access key (idempotent)
-  publish-static.sh             aws s3 sync public-site/ s3://<bucket>/
+  publish-static.sh             aws s3 sync result-site/ s3://<bucket>/
   tear-down.sh                  interactive cleanup (empty bucket, delete user)
   s3-bucket-policy.json         public-read for index/knockout/assets/data only
   iam-policy.json               PutObject + DeleteObject scoped to one bucket
@@ -236,7 +236,6 @@ Strategy interface: `generateNextRound(group) → Round` in `admin/src/pairing/i
 - **Round robin** (`round_robin.ts`) — circle method. N members → N-1 rounds (even) or N rounds (odd, with byes). Fully deterministic.
 - **Swiss** (`swiss.ts`) — rank by current points (wins so far), pair greedily with backtracking, never repeat an opponent. Lowest-ranked unbyed player gets the bye on odd counts; falls back to last player if everyone has had a bye. Throws if no rematch-free pairing exists.
 - **Manual** — admin adds matches via the inline form in Scoring; no auto-generation.
-- **Table** — same as manual at the data layer; the public site renders it as a standings table only.
 
 `generateNextRound()` for Swiss derives each player's `{ points, opponents, hadBye }` from the group's `rounds` history before delegating to the algorithm.
 
@@ -274,8 +273,8 @@ All responses are JSON. State-changing requests trigger `schedulePublish()` via 
 - `POST   /api/publish/force` — cancels any pending debounce/retry and pushes synchronously; 502 with error message on failure
 - `POST   /api/publish/backup` — manual push of `tournament.json` snapshot to `private/backups/`
 
-### Local viewer (dev preview of the public site)
-- `GET    /view/`, `/view/index.html`, `/view/knockout.html`, `/view/assets/*` — static mount of `public-site/`
+### Local viewer (dev preview of the result site)
+- `GET    /view/`, `/view/index.html`, `/view/knockout.html`, `/view/assets/*` — static mount of `result-site/`
 - `GET    /view/data/version.json` — same shape as the S3 file, derived live from `tournament.json`; `Cache-Control: max-age=5`
 - `GET    /view/data/groups.json` — derived live; `Cache-Control: max-age=15`
 - `GET    /view/data/knockout.json` — derived live (returns `null` if no bracket); `Cache-Control: max-age=15`
@@ -288,8 +287,8 @@ pnpm i                # or: npm i
 # Run the local admin app
 pnpm dev              # tsx watch admin/src/index.ts → http://localhost:37325
 
-# Preview the public site against live data (no S3 needed)
-# The admin app mounts `public-site/` at /view/ and serves the same derived
+# Preview the result site against live data (no S3 needed)
+# The admin app mounts `result-site/` at /view/ and serves the same derived
 # view JSONs (version/groups/knockout) at /view/data/*.json that the publish
 # loop would push to S3. Same-origin, same shape, same Cache-Control headers —
 # the only thing that's different is the URL.
@@ -326,7 +325,7 @@ Add new tests when changing pairing or standings logic. Other modules (CRUD rout
 
    ```bash
    REGION=eu-central-1
-   BUCKET=tp-public-$(openssl rand -hex 4)
+   BUCKET=tp-result-$(openssl rand -hex 4)
 
    aws s3 mb s3://$BUCKET --region $REGION
    aws s3api put-public-access-block --bucket $BUCKET \
@@ -338,14 +337,14 @@ Add new tests when changing pairing or standings logic. Other modules (CRUD rout
      --index-document index.html --error-document index.html
    ```
 
-   Public URL: `http://$BUCKET.s3-website.$REGION.amazonaws.com`.
+   Result-site URL: `http://$BUCKET.s3-website.$REGION.amazonaws.com`.
 
 2. **Create the IAM publisher user** named `tp-publisher-<bucket>`. Inline policy: `s3:PutObject` + `s3:DeleteObject` + `s3:ListBucket` on this bucket only. Generate an access key.
 
-3. **Upload the static public site:**
+3. **Upload the static result site:**
 
    ```bash
-   AWS_PROFILE=tp aws s3 sync public-site/ s3://$BUCKET/ \
+   AWS_PROFILE=tp aws s3 sync result-site/ s3://$BUCKET/ \
      --cache-control "public, max-age=3600"
    ```
 
@@ -456,8 +455,8 @@ No DNS, no certificates, no CloudFront, no domain.
 - [ ] Verify recovery: pull latest backup from S3 to a fresh checkout, confirm app boots with the right data.
 - [ ] Backup laptop ready: codebase + `~/.aws/credentials` + Node 20 installed.
 - [ ] 4G/5G phone hotspot tested at the venue.
-- [ ] Public URL renders correctly on a phone — most spectators will view on mobile. Browsers will show "not secure" — confirm the director is OK with that.
-- [ ] QR code for the public URL printed and ready to display at the venue.
+- [ ] Result-site URL renders correctly on a phone — most spectators will view on mobile. Browsers will show "not secure" — confirm the director is OK with that.
+- [ ] QR code for the result-site URL printed and ready to display at the venue.
 - [ ] `Cache-Control` headers verified on each published object (`curl -I`).
 - [ ] IAM key has only `s3:PutObject`/`s3:DeleteObject`/`s3:ListBucket` on this one bucket.
 - [ ] Recovery procedure printed on paper.
@@ -468,18 +467,18 @@ No DNS, no certificates, no CloudFront, no domain.
 - Not a registration/payment system. Participants come from CSV.
 - Not a multi-tournament platform. One tournament, one JSON file. Clone the repo for a second event.
 - Not multi-operator. One scorekeeper at one laptop is the entire write path. If a future event needs multiple concurrent editors, the architecture changes (back to a hosted server).
-- Not real-time in the sub-second sense. Public page updates within ~30 s of an admin save. Fine for badminton.
+- Not real-time in the sub-second sense. Result-site pages update within ~30 s of an admin save. Fine for badminton.
 - Not mobile-app native. Responsive web is enough.
 
 ## Notes for future Claude sessions
 
 - The "single operator" assumption is load-bearing. If the user starts asking for multi-admin or multi-device write workflows, flag the architecture-level change before coding anything.
 - The local app's source of truth is `admin/data/tournament.json`. Always go through `storage.mutate()` — it validates with zod, serializes writes, and does atomic temp+rename. Never write the file in place.
-- Standings + tiebreaker logic lives in `admin/src/standings.ts` and runs at publish time. Do not reimplement it in the public-site JS. The public site just renders what `groups.json` contains.
+- Standings + tiebreaker logic lives in `admin/src/standings.ts` and runs at publish time. Do not reimplement it in the result-site JS. The result site just renders what `groups.json` contains.
 - Pairing algorithms get unit tests with deterministic seeds. Everything else is fine without tests.
 - Publishing to S3 is debounced and retry-queued via the Fastify `onResponse` hook — don't push synchronously inside HTTP handlers.
 - The bucket policy intentionally lists exact public-readable paths. If you add a new public-facing file at a new prefix, update `deploy/s3-bucket-policy.json` and re-apply, or the file will 403.
-- The admin app mounts `public-site/` at `/view/` purely as a dev preview. It is **not** a production serving path — spectators always hit the S3 website URL, not the operator's laptop. Don't add auth, rate-limiting, or anything that assumes external traffic to `/view/`; if a feature would only make sense for real spectators, it belongs in the publish pipeline, not the route.
+- The admin app mounts `result-site/` at `/view/` purely as a dev preview. It is **not** a production serving path — spectators always hit the S3 website URL, not the operator's laptop. Don't add auth, rate-limiting, or anything that assumes external traffic to `/view/`; if a feature would only make sense for real spectators, it belongs in the publish pipeline, not the route.
 - Group membership is exclusive: a participant assigned to one group is hidden from every other group's add-member checklist. If a future workflow needs a player to compete in two groups (e.g. mixed + singles draws on the same weekend), this rule has to be relaxed — flag it before changing the filter.
 - `Participant.category`, `Participant.class`, and `Group.category` are open strings in the schema; the canonical sets (`MS/WS/MD/WD/MX` and `S/A/B/C/D`) are enforced only by the form selects so new disciplines or skill bands can be added without a schema migration. If you tighten them to enums, write a migration for any existing rows first.
 - Don't introduce an ORM, a database, a message queue, a hosted backend, or Cognito without a concrete reason tied to *this event*. If you're tempted, re-read "Hard constraints".

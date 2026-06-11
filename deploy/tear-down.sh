@@ -2,7 +2,7 @@
 # Delete everything bootstrap-aws.sh created. Prompts before each step.
 #
 # Usage:
-#   BUCKET=tp-public-xxxx bash deploy/tear-down.sh
+#   BUCKET=tp-result-xxxx bash deploy/tear-down.sh
 
 set -euo pipefail
 

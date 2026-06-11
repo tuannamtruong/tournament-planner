@@ -12,18 +12,18 @@ import { knockoutRoutes } from './routes/knockout.ts';
 import { publishRoutes } from './routes/publish.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = path.resolve(__dirname, '../public');
-const VIEW_DIR = path.resolve(__dirname, '../../public-site');
+const ADMIN_DIR = path.resolve(__dirname, '../public');
+const RESULT_DIR = path.resolve(__dirname, '../../result-site');
 
 const app = Fastify({
   logger: true,
   bodyLimit: 2 * 1024 * 1024,  // 2 MB — generous for CSV pastes
 });
 
-await app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: '/' });
-await app.register(fastifyStatic, { root: VIEW_DIR, prefix: '/view/', decorateReply: false });
+await app.register(fastifyStatic, { root: ADMIN_DIR, prefix: '/' });
+await app.register(fastifyStatic, { root: RESULT_DIR, prefix: '/view/', decorateReply: false });
 
-// Live preview of the public site: same HTML/JS that gets uploaded to S3,
+// Live preview of the result site: same HTML/JS that gets uploaded to S3,
 // served same-origin from this Fastify so the relative `data/*.json` fetches
 // hit the dynamic route below. Lets the operator verify exactly what
 // spectators will see without provisioning S3.
