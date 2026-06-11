@@ -19,7 +19,6 @@
   <nav id="tabs">
     <a data-tab="participants" class="active">Participants</a>
     <a data-tab="groups">Groups</a>
-    <a data-tab="groupstage">Groupstage</a>
     <a data-tab="scoring">Scoring</a>
     <a data-tab="bracket">Bracket</a>
     <a data-tab="settings">Settings</a>
@@ -65,43 +64,47 @@
 
     <section data-tab="groups">
       <h2>Groups</h2>
-      <form id="add-group">
-        <select name="category">
-          <option value="">Category</option>
-          <option value="MS">MS</option>
-          <option value="WS">WS</option>
-          <option value="MD">MD</option>
-          <option value="WD">WD</option>
-          <option value="MX">MX</option>
-        </select>
-        <fieldset class="inline-checks" data-name="classes">
-          <legend>Classes</legend>
-          <label><input type="checkbox" name="classes" value="S"> S</label>
-          <label><input type="checkbox" name="classes" value="A"> A</label>
-          <label><input type="checkbox" name="classes" value="B"> B</label>
-          <label><input type="checkbox" name="classes" value="C"> C</label>
-          <label><input type="checkbox" name="classes" value="D"> D</label>
-        </fieldset>
-        <select name="mode">
-          <option value="round_robin">Round robin</option>
-          <option value="swiss">Swiss</option>
-          <option value="manual">Manual</option>
-        </select>
-        <div class="form-break"></div>
-        <input name="name" placeholder="Group name (auto)" required>
-        <button type="submit">Create group</button>
-        <div class="form-break"></div>
-        <label>Players per group:
-          <input name="playersPerGroup" type="number" min="2" value="4" style="width: 4rem">
-        </label>
-        <button type="button" id="auto-generate-groups">Generate groups and participants</button>
-      </form>
-      <p class="hint">Set category + one or more classes to restrict who can join. Leave classes empty to allow any.</p>
-      <div id="groups-list"></div>
-    </section>
-
-    <section data-tab="groupstage">
-      <h2>Groupstage</h2>
+      <div class="groups-top">
+        <div class="card groups-create">
+          <h3>Create group</h3>
+          <form id="add-group">
+            <select name="category">
+              <option value="">Category</option>
+              <option value="MS">MS</option>
+              <option value="WS">WS</option>
+              <option value="MD">MD</option>
+              <option value="WD">WD</option>
+              <option value="MX">MX</option>
+            </select>
+            <fieldset class="inline-checks" data-name="classes">
+              <legend>Classes</legend>
+              <label><input type="checkbox" name="classes" value="S"> S</label>
+              <label><input type="checkbox" name="classes" value="A"> A</label>
+              <label><input type="checkbox" name="classes" value="B"> B</label>
+              <label><input type="checkbox" name="classes" value="C"> C</label>
+              <label><input type="checkbox" name="classes" value="D"> D</label>
+            </fieldset>
+            <select name="mode">
+              <option value="round_robin">Round robin</option>
+              <option value="swiss">Swiss</option>
+              <option value="manual">Manual</option>
+            </select>
+            <div class="form-break"></div>
+            <input name="name" placeholder="Group name (auto)" required>
+            <button type="submit">Create group</button>
+            <div class="form-break"></div>
+            <label>Players per group:
+              <input name="playersPerGroup" type="number" min="2" value="4" style="width: 4rem">
+            </label>
+            <button type="button" id="auto-generate-groups">Generate groups and participants</button>
+          </form>
+          <p class="hint">Set category + one or more classes to restrict who can join. Leave classes empty to allow any.</p>
+        </div>
+        <div class="card groups-overview">
+          <h3>Overview</h3>
+          <div id="groups-overview"></div>
+        </div>
+      </div>
       <p class="hint">Standings, head-to-head, and pairings per group. Round-robin/Swiss: click "Generate next round". All modes: add matches manually below.</p>
       <div id="groupstage-list"></div>
     </section>

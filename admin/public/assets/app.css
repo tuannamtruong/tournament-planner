@@ -137,14 +137,43 @@ th { background: #f3f4f6; font-weight: 600; }
 }
 .card h3 { margin-top: 0; }
 
-#groups-list {
+.groups-top {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
+  margin-bottom: 1rem;
+  align-items: start;
 }
-#groups-list > .card { margin-bottom: 0; }
+.groups-top > .card { margin-bottom: 0; }
+.groups-top h3 { margin-top: 0; }
 @media (max-width: 800px) {
-  #groups-list { grid-template-columns: 1fr; }
+  .groups-top { grid-template-columns: 1fr; }
+}
+
+.overview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.overview-list li {
+  padding: 0.25rem 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.9rem;
+}
+.overview-list li:last-child { border-bottom: 0; }
+.overview-list a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+.overview-list a:hover { text-decoration: underline; }
+
+#groupstage-list > .card { scroll-margin-top: 1rem; position: relative; }
+#groupstage-list > .card > .group-delete-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
 }
 
 .member-list {

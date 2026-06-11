@@ -31,7 +31,7 @@ async function refresh() {
   const renamerInput = $('#rename input[name="name"]');
   if (renamerInput && document.activeElement !== renamerInput) renamerInput.value = state.tournament.name;
   renderParticipants();
-  renderGroups();
+  renderGroupsOverview();
   renderGroupstage();
   renderScoring();
   renderBracket();
@@ -155,87 +155,89 @@ function groupLabel(g) {
 // across re-renders (every checkbox tick triggers a full refresh()).
 const groupDetailsOpen = new Set();
 
-function renderGroups() {
-  const root = $('#groups-list');
+function renderMembersPanel(g) {
   // Members already assigned to any *other* group are not offered for this one.
-  const claimedByOther = new Map(); // participantId -> other group name
+  const claimedByOther = new Map();
   for (const grp of state.groups) {
     for (const m of grp.members) {
       if (!claimedByOther.has(m)) claimedByOther.set(m, grp.name);
     }
   }
+  const memberIds = new Set(g.members);
+  const shown = state.participants.filter(p => {
+    if (memberIds.has(p.id)) return true;
+    if (!eligibleForGroup(g, p)) return false;
+    const owner = claimedByOther.get(p.id);
+    return !owner || owner === g.name;
+  });
+  const restricted = !!(g.category || classList(g).length);
+  const tag = [g.category, classList(g).join('/')].filter(Boolean).join('-');
 
-  root.replaceChildren(...state.groups.map(g => {
-    const memberIds = new Set(g.members);
-    // Members of *this* group always show up (so ticking never makes a row
-    // disappear). Plus any other participant who fits the filter and isn't
-    // claimed by another group.
-    const shown = state.participants.filter(p => {
-      if (memberIds.has(p.id)) return true;
-      if (!eligibleForGroup(g, p)) return false;
-      const owner = claimedByOther.get(p.id);
-      return !owner || owner === g.name;
-    });
-    const restricted = !!(g.category || classList(g).length);
-    const tag = [g.category, classList(g).join('/')].filter(Boolean).join('-');
-
-    const sortedMembers = g.members
-      .map(id => state.participants.find(p => p.id === id))
-      .filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    return el('div', { class: 'card' },
-      el('h3', {}, `${g.name} `, el('span', { class: 'muted' }, `(${groupLabel(g)})`)),
-      el('div', {},
-        el('strong', {}, 'Members:'),
-        sortedMembers.length === 0
-          ? el('div', { class: 'muted' }, '(none)')
-          : el('ul', { class: 'member-list' },
-              ...sortedMembers.map(p => el('li', {}, p.name)),
+  return el('details', {
+    ...(groupDetailsOpen.has(g.id) ? { open: true } : {}),
+    on: { toggle: (e) => {
+      if (e.target.open) groupDetailsOpen.add(g.id);
+      else groupDetailsOpen.delete(g.id);
+    } },
+  },
+    el('summary', {}, `Add/remove members${restricted ? ` — ${shown.length} eligible` : ''}`),
+    shown.length === 0
+      ? el('p', { class: 'muted' }, restricted
+          ? `No participants match ${tag}.`
+          : 'No participants yet.')
+      : el('div', { class: 'row' },
+          ...shown.map(p =>
+            el('label', { class: 'row' },
+              el('input', {
+                type: 'checkbox',
+                ...(memberIds.has(p.id) ? { checked: true } : {}),
+                on: { change: async (e) => {
+                  const checked = e.target.checked;
+                  const members = checked
+                    ? [...g.members, p.id]
+                    : g.members.filter(m => m !== p.id);
+                  await patch(`/api/groups/${g.id}`, { members });
+                  await refresh();
+                } },
+              }),
+              p.name,
+              el('span', { class: 'muted' }, ` ${p.club ? '· ' + p.club : ''}`),
             ),
-      ),
-      el('details', {
-        ...(groupDetailsOpen.has(g.id) ? { open: true } : {}),
-        on: { toggle: (e) => {
-          if (e.target.open) groupDetailsOpen.add(g.id);
-          else groupDetailsOpen.delete(g.id);
-        } },
-      },
-        el('summary', {}, `Add/remove members${restricted ? ` — ${shown.length} eligible` : ''}`),
-        shown.length === 0
-          ? el('p', { class: 'muted' }, restricted
-              ? `No participants match ${tag}.`
-              : 'No participants yet.')
-          : el('div', { class: 'row' },
-              ...shown.map(p =>
-                el('label', { class: 'row' },
-                  el('input', {
-                    type: 'checkbox',
-                    ...(memberIds.has(p.id) ? { checked: true } : {}),
-                    on: { change: async (e) => {
-                      const checked = e.target.checked;
-                      const members = checked
-                        ? [...g.members, p.id]
-                        : g.members.filter(m => m !== p.id);
-                      await patch(`/api/groups/${g.id}`, { members });
-                      await refresh();
-                    } },
-                  }),
-                  p.name,
-                  el('span', { class: 'muted' }, ` ${p.club ? '· ' + p.club : ''}`),
-                ),
-              ),
-            ),
-      ),
-      el('div', { class: 'row' },
-        el('button', { class: 'danger', on: { click: async () => {
-          if (!confirm(`Delete group ${g.name}?`)) return;
-          groupDetailsOpen.delete(g.id);
-          await del(`/api/groups/${g.id}`); await refresh();
-        } } }, 'Delete group'),
-      ),
-    );
-  }));
+          ),
+        ),
+  );
+}
+
+function matchProgress(g) {
+  let done = 0, total = 0;
+  for (const r of g.rounds) for (const m of r.matches) {
+    if (m.p1 === '__bye__' || m.p2 === '__bye__') continue;
+    total++;
+    if (m.status === 'done') done++;
+  }
+  return { done, total };
+}
+
+function renderGroupsOverview() {
+  const root = $('#groups-overview');
+  if (state.groups.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet.'));
+    return;
+  }
+  root.replaceChildren(el('ul', { class: 'overview-list' },
+    ...state.groups.map(g => {
+      const { done, total } = matchProgress(g);
+      return el('li', {},
+        el('a', { href: `#group-${g.id}`, on: { click: (e) => {
+          e.preventDefault();
+          const card = document.getElementById(`group-${g.id}`);
+          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } } }, g.name),
+        el('span', { class: 'muted' }, ` · ${groupLabel(g)} · ${g.members.length} member${g.members.length === 1 ? '' : 's'}`),
+        total > 0 ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`) : null,
+      );
+    }),
+  ));
 }
 
 // Default name format: "<category>-<classes joined by /> <n>", where n is the
@@ -502,35 +504,44 @@ function renderAddMatchForm(g, container) {
   const nextRound = (g.rounds.at(-1)?.roundNo ?? 0) + 1;
   const roundIn = el('input', { type: 'number', min: 1, value: nextRound, style: 'width:5rem' });
   const courtIn = el('input', { placeholder: 'Court', style: 'width:5rem' });
-  return el('div', { class: 'row', style: 'margin-top:0.5rem; gap:0.5rem; flex-wrap:wrap' },
-    el('em', {}, 'Add match: '),
-    p1Sel, el('span', {}, ' vs '), p2Sel,
-    el('span', {}, ' round '), roundIn,
-    courtIn,
-    el('button', { on: { click: async () => {
-      if (p1Sel.value === p2Sel.value) return alert('Pick two different players.');
-      try {
-        await post(`/api/groups/${g.id}/matches`, {
-          p1: p1Sel.value, p2: p2Sel.value,
-          roundNo: Number(roundIn.value),
-          court: courtIn.value,
-        });
-        await refresh();
-      } catch (err) { alert(err.message); }
-    } } }, 'Add'),
+  const addBtn = el('button', { style: 'width:100%', on: { click: async () => {
+    if (p1Sel.value === p2Sel.value) return alert('Pick two different players.');
+    try {
+      await post(`/api/groups/${g.id}/matches`, {
+        p1: p1Sel.value, p2: p2Sel.value,
+        roundNo: Number(roundIn.value),
+        court: courtIn.value,
+      });
+      await refresh();
+    } catch (err) { alert(err.message); }
+  } } }, 'Add');
+  return el('div', { style: 'margin-top:0.5rem' },
+    el('div', { class: 'row', style: 'gap:0.5rem; flex-wrap:wrap' },
+      el('em', {}, 'Add match: '),
+      p1Sel, el('span', {}, ' vs '), p2Sel,
+      el('span', {}, ' round '), roundIn,
+      courtIn,
+    ),
+    el('div', { class: 'row', style: 'margin-top:0.5rem' }, addBtn),
   );
 }
 
 function renderGroupstage() {
   const root = $('#groupstage-list');
   if (state.groups.length === 0) {
-    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet. Create one in the Groups tab.'));
+    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet. Create one above.'));
     return;
   }
   root.replaceChildren(...state.groups.map(g => {
     const canGenerate = g.mode === 'round_robin' || g.mode === 'swiss';
-    return el('div', { class: 'card' },
+    return el('div', { class: 'card', id: `group-${g.id}` },
+      el('button', { class: 'danger group-delete-btn', on: { click: async () => {
+        if (!confirm(`Delete group ${g.name}?`)) return;
+        groupDetailsOpen.delete(g.id);
+        await del(`/api/groups/${g.id}`); await refresh();
+      } } }, 'Delete group'),
       el('h3', {}, `${g.name} `, el('span', { class: 'muted' }, `(${groupLabel(g)})`)),
+      renderMembersPanel(g),
       renderStandingsTable(g),
       renderH2H(g),
       el('h4', {}, 'Pairings'),

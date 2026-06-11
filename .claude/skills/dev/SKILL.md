@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Build, run, smoke-test, and develop the tournament-planner Fastify admin app + S3-bound result site. Use when asked to start the admin, run vitest, drive the API, exercise pairing/standings/publish, or screenshot the result viewer.
+description: Build, run, smoke-test, and develop the tournament-planner Fastify admin app + S3-bound result site. Use when asked to start the admin, run vitest, drive the API, or exercise pairing/standings/publish. No headless browser is available, so visual/screenshot checks of the UI are out of scope from the agent path.
 allowed-tools: Bash(curl:*), Bash(ping:*), Bash(node:*), Bash(lsof:*)
 ---
 
@@ -27,6 +27,17 @@ node --version   # v18.x or newer
 
 No `apt-get` packages were needed — the project is pure JS/TS. `lsof` is used
 by `driver.mjs` for cleanup and is preinstalled on Ubuntu.
+
+**No headless browser available.** This container has no `chromium-cli`,
+`chromium`, `chromium-browser`, `google-chrome`, or `playwright` — neither
+on `PATH` nor in `node_modules/`. You cannot screenshot the admin UI or
+result viewer from the agent path. All UI verification has to go through the
+HTTP API (`driver.mjs` already does this for the data flows); for actual
+visual checks, hand off to the operator running `npm run dev` on their
+laptop. Don't try to `apt-get install chromium` or `npm i -D playwright` to
+work around this — both pull hundreds of MB and `playwright install` then
+needs network for the browser binaries; treat the absence as a hard
+constraint of the agent environment.
 
 ## Setup
 
@@ -84,8 +95,11 @@ node .claude/skills/dev/driver.mjs serve --port 38400
 ```
 
 Same isolation (temp data file, no S3). Use this when you want to `curl
-/api/...`, point a browser at the admin UI, or run `chromium-cli` against
-`/view/`.
+/api/...` or hand the URL to the operator so they can poke the admin UI in
+their own browser. Headless visual checks aren't available from the agent
+side — see Prerequisites; the result viewer and admin UI can only be
+inspected via the JSON endpoints (`/view/data/*.json`, `/api/state`) from
+here.
 
 ### Verbose mode
 
