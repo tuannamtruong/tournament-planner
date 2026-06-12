@@ -29,10 +29,6 @@ function matchCounts(g) {
 }
 
 export function renderGroups(root, groups) {
-  // Preserve which groups were open across the 15s polling re-render.
-  const wasOpen = new Set();
-  for (const d of root.querySelectorAll('details.group[open]')) wasOpen.add(d.id);
-
   root.replaceChildren();
   if (groups.length === 0) {
     root.append(el('p', { class: 'muted' }, 'No groups yet.'));
@@ -75,7 +71,6 @@ export function renderGroups(root, groups) {
         el('span', { class: 'muted' }, ` (${g.mode.replace('_', ' ')})`),
       ),
     );
-    if (wasOpen.has(id)) card.setAttribute('open', '');
     card.addEventListener('toggle', updateToggleLabel);
 
     if (g.standings && g.standings.length > 0) {

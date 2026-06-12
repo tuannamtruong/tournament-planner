@@ -17,9 +17,9 @@
   </header>
   <main id="groups"></main>
   <script type="module">
-    import { startPolling } from './assets/poll.js';
+    import { loadView } from './assets/poll.js';
     import { renderGroups } from './assets/render-groups.js';
-    startPolling('groups.json', (data) => {
+    loadView('groups.json', (data) => {
       document.getElementById('title').textContent = data.tournament || 'Tournament';
       renderGroups(document.getElementById('groups'), data.groups || []);
     });

@@ -33,6 +33,6 @@
 | Admin runs locally | No server to host, no admin auth needed, pairing logic just runs in Node, the DB is a file on the laptop | Hosted admin on Lightsail (~$3.50/mo, +Caddy +cookies +systemd +backups) — strictly more parts |
 | JSON file as source of truth | Single writer, <10 MB of data, trivial to inspect/edit in an emergency, same shape that gets pushed to S3 | SQLite: nicer queries, but adds a transform step before publishing and a native dep |
 | S3 website hosting, no CDN, no custom domain | Cheapest possible; zero servers; no DNS/cert setup; result-site URL is just the bucket endpoint | CloudFront + ACM + custom domain: prettier URL and HTTPS, but adds 3 services to provision and is unnecessary for one event |
-| Poll `version.json` for updates | Cacheable, cheap, no SSE infrastructure, survives reconnects | SSE: needs a long-lived server we don't have anymore |
+| Fetch `version.json` once on page load | Cacheable, cheap, no SSE infrastructure; spectators refresh to see new data | Auto-polling every 15 s: hammered S3 even when nothing changed, and `setInterval` is throttled in background tabs anyway. SSE: needs a long-lived server we don't have |
 | IAM user with `s3:PutObject` only | Least-privilege, keys live in `~/.aws/credentials` on the laptop | IAM role: only for EC2/Lambda; not applicable to a laptop |
 | Plain HTML + vanilla JS (no build) | ~8 screens total; React/Vite tax doesn't pay back | React+Vite: more dev tax than payoff at this scale |

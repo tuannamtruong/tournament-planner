@@ -6,7 +6,7 @@ allowed-tools: Bash(curl:*), Bash(ping:*), Bash(node:*), Bash(lsof:*)
 
 A local Node + Fastify admin app on `http://localhost:37325` that owns
 `admin/data/tournament.json` (zod-validated source of truth) and derives result
-JSONs the result site (S3-website-hosted) polls. Everything in one repo, no
+JSONs the result site (S3-website-hosted) fetches on page load. Everything in one repo, no
 build step, no hosted backend.
 
 Drive it via `.claude/skills/dev/driver.mjs` — that script

@@ -13,8 +13,8 @@ pnpm dev              # tsx watch admin/src/index.ts → http://localhost:37325
 # the only thing that's different is the URL.
 #   open http://localhost:37325/view/           # spectator's index.html
 #   open http://localhost:37325/view/knockout.html
-# Updates appear on the next 15 s poll after each admin edit. No S3, no
-# fixture files to maintain.
+# Updates appear after refreshing/reopening the spectator page following an
+# admin edit. No S3, no fixture files to maintain.
 
 # Tests
 pnpm test             # vitest — pairing + standings (13 tests)

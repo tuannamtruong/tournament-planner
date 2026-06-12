@@ -36,7 +36,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
 
 - **`index.html`** — one block per group: pre-computed standings table (rank, W, L, sets, points) + match grid (court, names, set scores, status).
 - **`knockout.html`** — column-per-round bracket, winner names bolded, set scores beneath.
-- Both pages poll `data/version.json` every 15 s. When `updatedAt` changes, they refetch only the view file they render. No CDN; browser `Cache-Control` does the work.
+- Both pages fetch `data/version.json` once on page load, then fetch the view file they render. No auto-polling — spectators must refresh or reopen the page to see new data. No CDN; browser `Cache-Control` does the work.
 
 
 ## Pairing modes

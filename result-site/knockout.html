@@ -17,9 +17,9 @@
   </header>
   <main id="bracket"></main>
   <script type="module">
-    import { startPolling } from './assets/poll.js';
+    import { loadView } from './assets/poll.js';
     import { renderKnockout } from './assets/render-knockout.js';
-    startPolling('knockout.json', (data) => {
+    loadView('knockout.json', (data) => {
       renderKnockout(document.getElementById('bracket'), data);
     });
   </script>

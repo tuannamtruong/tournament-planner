@@ -13,7 +13,7 @@ There is no backend in AWS. The admin app derives view JSONs and PUTs them to S3
 
 | File | What's in it |
 |---|---|
-| [docs/Architecture.md](docs/Architecture.md) | System diagram and the rationale for each major design choice (local admin, JSON-as-DB, no CDN, poll-based updates). |
+| [docs/Architecture.md](docs/Architecture.md) | System diagram and the rationale for each major design choice (local admin, JSON-as-DB, no CDN, refresh-based updates). |
 | [docs/Dev-deploy-test.md](docs/Dev-deploy-test.md) | Local dev workflow, AWS bootstrap commands, the operator's edit → publish loop, tear-down, and the test matrix. |
 | [docs/API-endpoints.md](docs/API-endpoints.md) | HTTP API reference: `/api/state`, participants, groups, matches, knockout, publish, and the `/view/` dev preview mount. |
 | [docs/Cost-analysis.md](docs/Cost-analysis.md) | Per-event AWS cost estimate (target: <$2 for the whole event). |
@@ -54,7 +54,7 @@ Preview the spectator view against live data at `http://localhost:37325/view/` �
 1. Operator edits in the admin UI → API mutates `tournament.json` → `pendingChanges` counter bumps.
 2. Header status light shows 🟡 pending.
 3. Operator clicks **Publish** → admin derives `version.json` / `groups.json` / `knockout.json` and PUTs them to S3 in parallel.
-4. Spectator browsers see the change on their next 15 s poll of `version.json`.
+4. Spectator browsers see the change the next time they refresh or reopen the page.
 
 Wi-Fi drops are fine — edits keep working locally; `pendingChanges` accumulates; the next Publish flushes the whole snapshot.
 
