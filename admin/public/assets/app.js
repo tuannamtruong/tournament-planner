@@ -295,11 +295,45 @@ $('#add-group').addEventListener('submit', async (e) => {
   syncDefaultGroupName();
 });
 
+// Snake-seed N members across `numGroups` buckets of `perGroup` each. Top
+// seeds spread evenly; unseeded (seed===0) sort to the end.
+function snakeSeedIds(members, numGroups, perGroup) {
+  const ranked = [...members].sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
+  const buckets = Array.from({ length: numGroups }, () => []);
+  for (let i = 0; i < numGroups * perGroup; i++) {
+    const lap = Math.floor(i / numGroups);
+    const col = i % numGroups;
+    const idx = lap % 2 === 0 ? col : numGroups - 1 - col;
+    buckets[idx].push(ranked[i].id);
+  }
+  return buckets;
+}
+
+// Pre-allocate `count` non-colliding group names for the given (category, classes).
+// `extraTaken` lets the caller reserve names already chosen in the same batch.
+function reserveGroupNames(category, classes, count, extraTaken = new Set()) {
+  const tag = [category, classes.join('/')].filter(Boolean).join('-') || 'Group';
+  const prefix = tag + ' ';
+  const taken = new Set(extraTaken);
+  for (const g of state?.groups ?? []) {
+    if ((g.category || '') === category && classList(g).join('/') === classes.join('/')) {
+      taken.add(g.name);
+    }
+  }
+  const names = [];
+  let n = 1;
+  while (names.length < count) {
+    const candidate = prefix + n++;
+    if (!taken.has(candidate)) { names.push(candidate); taken.add(candidate); }
+  }
+  return names;
+}
+
 $('#auto-generate-groups').addEventListener('click', async () => {
   const form = $('#add-group');
   const fd = new FormData(form);
   const category = fd.get('category') || '';
-  const classes = [...fd.getAll('classes')].map(String);
+  const selectedClasses = [...fd.getAll('classes')].map(String);
   const mode = fd.get('mode') || 'round_robin';
   const playersPerGroup = Number(fd.get('playersPerGroup') || 0);
 
@@ -309,36 +343,74 @@ $('#auto-generate-groups').addEventListener('click', async () => {
   }
 
   const claimed = new Set(state.groups.flatMap(g => g.members));
-  const eligible = state.participants.filter(p => {
-    if (claimed.has(p.id)) return false;
-    if (p.category !== category) return false;
-    if (classes.length && !classes.includes(p.class)) return false;
-    return true;
-  });
+  const noClass = selectedClasses.length === 0;
 
-  const numGroups = Math.floor(eligible.length / playersPerGroup);
-  if (numGroups === 0) {
-    return alert(`Need ${playersPerGroup} eligible participants; have ${eligible.length}.`);
+  // Build `plans`: each entry becomes one group { name, classes, memberIds }.
+  // When no class is selected we bucket by participant class — each generated
+  // group ends up with exactly one class, reflected in its name.
+  const plans = [];
+  let totalLeftover = 0;
+  let skippedNoClass = 0;
+
+  const planBatch = (classesForGroup, eligible) => {
+    const n = Math.floor(eligible.length / playersPerGroup);
+    totalLeftover += eligible.length - n * playersPerGroup;
+    if (n === 0) return;
+    const names = reserveGroupNames(category, classesForGroup, n);
+    const buckets = snakeSeedIds(eligible, n, playersPerGroup);
+    for (let i = 0; i < n; i++) {
+      plans.push({ name: names[i], classes: classesForGroup, memberIds: buckets[i] });
+    }
+  };
+
+  if (noClass) {
+    const byClass = new Map();
+    for (const p of state.participants) {
+      if (claimed.has(p.id)) continue;
+      if (p.category !== category) continue;
+      if (!p.class) { skippedNoClass++; continue; }
+      if (!byClass.has(p.class)) byClass.set(p.class, []);
+      byClass.get(p.class).push(p);
+    }
+    for (const cls of [...byClass.keys()].sort()) {
+      planBatch([cls], byClass.get(cls));
+    }
+  } else {
+    const eligible = state.participants.filter(p => {
+      if (claimed.has(p.id)) return false;
+      if (p.category !== category) return false;
+      return selectedClasses.includes(p.class);
+    });
+    planBatch(selectedClasses, eligible);
   }
-  const leftover = eligible.length - numGroups * playersPerGroup;
-  const msg = `Create ${numGroups} group(s) of ${playersPerGroup}?`
-    + (leftover ? ` ${leftover} participant(s) will be left unassigned.` : '');
-  if (!confirm(msg)) return;
 
-  // Snake-seed across groups: top seeds spread evenly. Unseeded (seed===0)
-  // sort to the end so they fill the lowest slots.
-  const ranked = [...eligible].sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
-  const buckets = Array.from({ length: numGroups }, () => []);
-  for (let i = 0; i < numGroups * playersPerGroup; i++) {
-    const lap = Math.floor(i / numGroups);
-    const col = i % numGroups;
-    const idx = lap % 2 === 0 ? col : numGroups - 1 - col;
-    buckets[idx].push(ranked[i].id);
+  if (plans.length === 0) {
+    const detail = noClass
+      ? `No class selected, and no class for ${category} has at least ${playersPerGroup} eligible participants.`
+      : `Need ${playersPerGroup} eligible participants; have too few.`;
+    return alert(detail);
   }
 
-  for (const members of buckets) {
-    const name = defaultGroupName(category, classes);
-    state = await post('/api/groups', { name, mode, category, classes, members });
+  const lines = [];
+  if (noClass) {
+    lines.push('No class selected — groups will be split per participant class (one class per group).');
+    if (skippedNoClass > 0) {
+      lines.push(`(${skippedNoClass} participant(s) without a class were skipped.)`);
+    }
+    lines.push('');
+  }
+  lines.push(`Create the following ${plans.length} group(s)?`);
+  for (const p of plans) {
+    lines.push(`  • ${p.name} (${p.memberIds.length} player${p.memberIds.length === 1 ? '' : 's'})`);
+  }
+  if (totalLeftover > 0) {
+    lines.push('');
+    lines.push(`${totalLeftover} participant(s) will be left unassigned.`);
+  }
+  if (!confirm(lines.join('\n'))) return;
+
+  for (const p of plans) {
+    await post('/api/groups', { name: p.name, mode, category, classes: p.classes, members: p.memberIds });
   }
   await refresh();
   syncDefaultGroupName();
@@ -648,6 +720,53 @@ function renderGroupstage() {
   }));
 }
 
+// -- Set score validation ----------------------------------------------------
+// Badminton: a set is won at 21 with a 2-point lead, capped at 30 (so 30–28
+// or 30–29 are the only valid extra-play endings). Pure UI feedback — the
+// server accepts any non-negative integers.
+function setPairBadness(a, b) {
+  const aBad = a != null && (a < 0 || a > 30);
+  const bBad = b != null && (b < 0 || b > 30);
+  let pairBad = false;
+  if (a != null && b != null && !aBad && !bBad) {
+    const max = Math.max(a, b), min = Math.min(a, b);
+    if (max >= 21) {
+      if (max === 21) pairBad = min > 19;
+      else if (max < 30) pairBad = min !== max - 2;
+      else pairBad = min !== 28 && min !== 29;
+    }
+  }
+  return { aBad, bBad, pairBad };
+}
+
+const INVALID_MSG = 'Invalid badminton set: win by 2 at 21, max 30.';
+
+function validateScoreInputs(container) {
+  const groups = {};
+  container.querySelectorAll('input.score').forEach(inp => {
+    const idx = inp.dataset.idx;
+    (groups[idx] ??= {})[inp.dataset.side] = inp;
+  });
+  for (const { a, b } of Object.values(groups)) {
+    if (!a || !b) continue;
+    const av = a.value === '' ? null : Number(a.value);
+    const bv = b.value === '' ? null : Number(b.value);
+    const { aBad, bBad, pairBad } = setPairBadness(av, bv);
+    const aMark = aBad || pairBad, bMark = bBad || pairBad;
+    a.classList.toggle('invalid', aMark);
+    b.classList.toggle('invalid', bMark);
+    if (aMark) a.title = INVALID_MSG; else a.removeAttribute('title');
+    if (bMark) b.title = INVALID_MSG; else b.removeAttribute('title');
+  }
+}
+
+function attachScoreValidation(container) {
+  container.querySelectorAll('input.score').forEach(inp => {
+    inp.addEventListener('input', () => validateScoreInputs(container));
+  });
+  validateScoreInputs(container);
+}
+
 // -- Matches ------------------------------------------------------------------
 // Preserve which "Pending"/"Done" sections are open across re-renders.
 // Key: `${groupId}:pending` or `${groupId}:done`. Default: pending open, done closed.
@@ -797,6 +916,7 @@ function renderMatchRow(g, m) {
       el('input', { class: 'score', type: 'number', min: 0, value: b ?? '', 'data-idx': idx, 'data-side': 'b' }),
     )),
   );
+  attachScoreValidation(scoreInputs);
   const courtInput = el('input', { class: 'court-input', value: m.court ?? '', placeholder: 'Court' });
 
   async function save(status) {
@@ -886,6 +1006,7 @@ function renderBracketSlot(roundNo, slot) {
       el('input', { class: 'score', type: 'number', min: 0, value: sb ?? '', 'data-idx': idx, 'data-side': 'b' }),
     )),
   );
+  attachScoreValidation(scoreInputs);
 
   async function save(winnerId) {
     const score = [];

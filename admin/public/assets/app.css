@@ -251,6 +251,12 @@ th { background: #f3f4f6; font-weight: 600; }
   align-items: center;
 }
 .match input.score { width: 3rem; text-align: center; }
+input.score.invalid {
+  border-color: var(--red);
+  background: #fef2f2;
+  color: var(--red);
+}
+input.score.invalid:focus { outline-color: var(--red); }
 /* hide number-input spin arrows */
 .match input.score::-webkit-inner-spin-button,
 .match input.score::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
