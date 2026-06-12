@@ -95,6 +95,7 @@ $('#push-backup').addEventListener('click', async () => {
   catch (err) { alert('Backup failed: ' + err.message); }
 });
 
+
 // -- Participants -------------------------------------------------------------
 const CATEGORY_ORDER = ['MS', 'WS', 'MD', 'WD', 'MX'];
 const CATEGORY_LABEL = { MS: "Men's Singles", WS: "Women's Singles", MD: "Men's Doubles", WD: "Women's Doubles", MX: 'Mixed Doubles' };
@@ -347,6 +348,103 @@ function groupLabel(g) {
   const cls = classList(g).join('/');
   const tag = [g.category, cls].filter(Boolean).join('-');
   return tag ? `${tag} · ${g.mode}` : g.mode;
+}
+
+// -- Overview tree -----------------------------------------------------------
+// Persisted open/closed state for tree-grouped overviews on Groups and Matches.
+// Categories default open, classes default closed.
+const overviewOpen = new Map();
+function isOverviewOpen(key, defaultOpen) {
+  return overviewOpen.has(key) ? overviewOpen.get(key) : defaultOpen;
+}
+
+function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem }) {
+  if (items.length === 0) {
+    rootEl.replaceChildren(el('p', { class: 'muted' }, 'Nothing here yet.'));
+    return;
+  }
+  const byCat = new Map();
+  for (const item of items) {
+    const cat = getCat(item) || '';
+    const cls = getCls(item) || '';
+    if (!byCat.has(cat)) byCat.set(cat, new Map());
+    const cm = byCat.get(cat);
+    if (!cm.has(cls)) cm.set(cls, []);
+    cm.get(cls).push(item);
+  }
+
+  const orderByPreset = (have, preset) => {
+    const seen = new Set();
+    const out = [];
+    for (const k of preset) if (have.has(k)) { out.push(k); seen.add(k); }
+    for (const k of have.keys()) if (!seen.has(k)) out.push(k);
+    return out;
+  };
+
+  const renderCat = (cat) => {
+    const catKey = `${prefix}:cat:${cat}`;
+    const clsMap = byCat.get(cat);
+    const total = [...clsMap.values()].reduce((s, a) => s + a.length, 0);
+
+    const classNodes = orderByPreset(clsMap, CLASS_ORDER).map(cls => {
+      const clsKey = `${prefix}:cls:${cat}:${cls}`;
+      const list = clsMap.get(cls);
+      return el('details', {
+        class: 'overview-class',
+        'data-overview-key': clsKey,
+        ...(isOverviewOpen(clsKey, false) ? { open: true } : {}),
+        on: { toggle: (e) => overviewOpen.set(clsKey, e.target.open) },
+      },
+        el('summary', {},
+          el('span', {}, `Class ${cls || '·'}`),
+          el('span', { class: 'muted' }, ` · ${list.length}`),
+        ),
+        el('ul', { class: 'overview-list' }, ...list.map(renderItem)),
+      );
+    });
+
+    const label = CATEGORY_LABEL[cat] ?? (cat || '(no category)');
+    return el('details', {
+      class: 'overview-cat',
+      'data-overview-key': catKey,
+      ...(isOverviewOpen(catKey, true) ? { open: true } : {}),
+      on: { toggle: (e) => overviewOpen.set(catKey, e.target.open) },
+    },
+      el('summary', {},
+        el('span', { class: 'mono cat-tag' }, cat || '·'),
+        el('span', {}, label),
+        el('span', { class: 'muted' }, ` · ${total}`),
+      ),
+      ...classNodes,
+    );
+  };
+
+  const SINGLES = new Set(['MS', 'WS']);
+  const allCats = orderByPreset(byCat, CATEGORY_ORDER);
+  const singlesCats = allCats.filter(c => SINGLES.has(c));
+  const otherCats = allCats.filter(c => !SINGLES.has(c));
+
+  rootEl.replaceChildren(el('div', { class: 'overview-cols' },
+    el('div', { class: 'overview-col' },
+      el('h4', { class: 'overview-col-title' }, 'Singles'),
+      singlesCats.length === 0
+        ? el('p', { class: 'muted' }, '—')
+        : el('div', {}, ...singlesCats.map(renderCat)),
+    ),
+    el('div', { class: 'overview-col' },
+      el('h4', { class: 'overview-col-title' }, 'Doubles & Mix'),
+      otherCats.length === 0
+        ? el('p', { class: 'muted' }, '—')
+        : el('div', {}, ...otherCats.map(renderCat)),
+    ),
+  ));
+}
+
+function toggleAllOverview(rootEl) {
+  const all = [...rootEl.querySelectorAll('details[data-overview-key]')];
+  if (all.length === 0) return;
+  const target = all.some(d => !d.open);
+  for (const d of all) d.open = target;
 }
 
 // Preserve which group cards have their "Add/remove members" panel open
@@ -1124,17 +1222,29 @@ function renderMatchesOverview() {
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   const items = [
-    ...state.groups.map(g => {
-      const { done, total } = matchProgress(g);
-      const anchor = `matches-group-${g.id}`;
-      return el('li', {},
-        el('a', { href: `#${anchor}`, on: { click: jumpTo(anchor) } }, g.name),
-        total > 0
-          ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
-          : el('span', { class: 'muted' }, ' · no matches yet'),
-      );
-    }),
-    ...state.knockouts.map(kb => {
+    ...state.groups.map(g => ({ kind: 'group', g, category: g.category || '', classes: classList(g).join('/') })),
+    ...state.knockouts.map(kb => ({ kind: 'ko', kb, category: kb.category || '', classes: (kb.classes || []).join('/') })),
+  ];
+  renderOverviewTree({
+    rootEl: root,
+    items,
+    getCat: it => it.category,
+    getCls: it => it.classes,
+    prefix: 'm',
+    renderItem: (it) => {
+      if (it.kind === 'group') {
+        const g = it.g;
+        const { done, total } = matchProgress(g);
+        const anchor = `matches-group-${g.id}`;
+        return el('li', {},
+          el('a', { href: `#${anchor}`, on: { click: jumpTo(anchor) } }, g.name),
+          el('span', { class: 'muted' }, ` · ${g.mode}`),
+          total > 0
+            ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
+            : el('span', { class: 'muted' }, ' · no matches yet'),
+        );
+      }
+      const kb = it.kb;
       const { done, total } = bracketProgress(kb);
       const anchor = `matches-bracket-${kb.id}`;
       return el('li', {},
@@ -1144,9 +1254,8 @@ function renderMatchesOverview() {
           ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
           : el('span', { class: 'muted' }, ' · waiting on group results'),
       );
-    }),
-  ];
-  root.replaceChildren(el('ul', { class: 'overview-list' }, ...items));
+    },
+  });
 }
 
 // "1" < "2" < "10"; non-numeric courts sort lexicographically after numeric;
