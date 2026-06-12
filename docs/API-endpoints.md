@@ -22,10 +22,10 @@ All responses are JSON. State-changing requests bump `pendingChanges` via a Fast
 - `PATCH  /api/groups/:gid/matches/:mid` `{ score?, status?, court? }` — auto-stamps `startedAt` on first `live`, `finishedAt` on first `done`
 - `POST   /api/groups/:gid/matches` `{ p1, p2, court?, roundNo? }` — manual groups; round is created if absent
 
-### Knockout
-- `POST   /api/knockout` `{ size, seeds? }` — creates an empty bracket of the given size and fills round 1 by standard single-elim seeding from the `seeds` array
-- `PATCH  /api/knockout/round/:r/slot/:s` `{ p1?, p2?, score?, winner? }` — setting `winner` propagates to the next round's correct slot (odd slot → p1, even → p2)
-- `DELETE /api/knockout`
+### Knockout (multi-bracket)
+- `POST   /api/knockouts` `{ name, category?, classes?, size, seeds? }` — creates one bracket. `size` is the requested player count (any integer ≥ 2); the server rounds up to the next power of 2 and seats unfilled positions as BYE. BYE pairings auto-advance the lone player to the next round.
+- `PATCH  /api/knockouts/:kid/round/:r/slot/:s` `{ p1?, p2?, score?, winner? }` — setting `winner` propagates to the next round's correct slot (odd slot → p1, even → p2)
+- `DELETE /api/knockouts/:kid`
 
 ### Publish
 - `GET    /api/publish/status` — `{ configured, lastSuccess, lastError, pendingChanges, inFlight }`
@@ -36,4 +36,4 @@ All responses are JSON. State-changing requests bump `pendingChanges` via a Fast
 - `GET    /view/`, `/view/index.html`, `/view/knockout.html`, `/view/assets/*` — static mount of `result-site/`
 - `GET    /view/data/version.json` — same shape as the S3 file, derived live from `tournament.json`; `Cache-Control: max-age=5`
 - `GET    /view/data/groups.json` — derived live; `Cache-Control: max-age=15`
-- `GET    /view/data/knockout.json` — derived live (returns `null` if no bracket); `Cache-Control: max-age=15`
+- `GET    /view/data/knockout.json` — derived live; shape `{ tournament, brackets: [{ id, name, category, classes, size, rounds }, ...] }`; `Cache-Control: max-age=15`

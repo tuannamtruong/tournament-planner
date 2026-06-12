@@ -17,13 +17,16 @@ function scoreText(score) {
   return score.map(([a, b]) => `${a}-${b}`).join(', ');
 }
 
-export function renderKnockout(root, data) {
-  root.replaceChildren();
-  if (!data || !data.rounds) {
-    root.append(el('p', { class: 'muted' }, 'Knockout bracket not yet posted.'));
-    return;
-  }
-  for (const round of data.rounds) {
+function bracketLabel(kb) {
+  const parts = [];
+  if (kb.category) parts.push(kb.category);
+  if (kb.classes && kb.classes.length) parts.push(kb.classes.join('/'));
+  return parts.join(' · ');
+}
+
+function renderOneBracket(kb) {
+  const cols = el('div', { class: 'bracket-cols' });
+  for (const round of kb.rounds) {
     const col = el('div', { class: 'bracket-round' },
       el('h3', {}, `Round ${round.roundNo}`),
     );
@@ -36,6 +39,27 @@ export function renderKnockout(root, data) {
           : null,
       ));
     }
-    root.append(col);
+    cols.append(col);
   }
+  const label = bracketLabel(kb);
+  return el('section', { class: 'bracket' },
+    el('h2', {}, kb.name, label ? el('span', { class: 'muted' }, ` (${label})`) : null),
+    cols,
+  );
+}
+
+export function renderKnockout(root, data) {
+  root.replaceChildren();
+  // Tolerate the legacy `{ size, rounds }` shape published by older admin
+  // versions: render it as a single nameless bracket.
+  const brackets = data && Array.isArray(data.brackets)
+    ? data.brackets
+    : data && data.rounds
+      ? [{ id: 'legacy', name: 'Knockout', category: '', classes: [], size: data.size, rounds: data.rounds }]
+      : [];
+  if (brackets.length === 0) {
+    root.append(el('p', { class: 'muted' }, 'Knockout bracket not yet posted.'));
+    return;
+  }
+  for (const kb of brackets) root.append(renderOneBracket(kb));
 }

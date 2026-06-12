@@ -130,23 +130,13 @@
     </section>
 
     <section data-tab="bracket">
-      <h2>Knockout bracket</h2>
+      <h2>Knockout brackets</h2>
       <div id="bracket-controls">
-        <form id="create-bracket">
-          <label>Size:
-            <select name="size">
-              <option value="4">4</option>
-              <option value="8" selected>8</option>
-              <option value="16">16</option>
-              <option value="32">32</option>
-            </select>
-          </label>
-          <p class="hint">Seeds the bracket from the participants' seed field (lowest = top seed). Replaces any existing bracket.</p>
-          <button type="submit">Create / replace bracket</button>
-          <button type="button" id="delete-bracket" class="danger">Delete bracket</button>
-        </form>
+        <button type="button" id="open-bracket-wizard">+ Create a bracket</button>
+        <p class="hint">Each bracket is scoped to a category + classes. The player count is up to you — non-power-of-2 sizes get padded with byes.</p>
       </div>
-      <div id="bracket-view"></div>
+      <div id="bracket-wizard"></div>
+      <div id="bracket-list"></div>
     </section>
 
     <section data-tab="settings">

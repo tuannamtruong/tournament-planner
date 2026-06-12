@@ -36,6 +36,7 @@ async function refresh() {
   renderGroupstage();
   renderMatches();
   renderBracket();
+  renderBracketWizard();
   const nameInput = $('#add-group')?.elements.name;
   if (nameInput && document.activeElement !== nameInput) syncDefaultGroupName();
 }
@@ -1027,22 +1028,44 @@ function attachScoreValidation(container) {
 
 // -- Matches ------------------------------------------------------------------
 // Preserve which "Pending"/"Done" sections are open across re-renders.
-// Key: `${groupId}:pending` or `${groupId}:done`. Default: pending open, done closed.
-const matchesSectionsClosed = new Set(); // keys explicitly closed by the user
-const matchesSectionsOpen = new Set();   // keys explicitly opened by the user
+// Keys: groups → `${groupId}:${kind}`, brackets → `b-${bracketId}:${kind}`.
+// Default: pending open, done closed.
+const matchesSectionsClosed = new Set();
+const matchesSectionsOpen = new Set();
 
-function isSectionOpen(groupId, kind) {
-  const key = `${groupId}:${kind}`;
+function isSectionOpen(key) {
   if (matchesSectionsOpen.has(key)) return true;
   if (matchesSectionsClosed.has(key)) return false;
-  return kind === 'pending';
+  return key.endsWith(':pending');
+}
+
+// Bracket slot is a "real" match (i.e. plays out, can be scored from the
+// Matches tab) iff both p1 and p2 are non-null. BYE slots get one player
+// auto-marked done at creation and never reach here.
+function bracketSlotMatches(kb) {
+  const out = [];
+  for (const r of kb.rounds) {
+    for (const slot of r.slots) {
+      if (slot.p1 && slot.p2) out.push({ roundNo: r.roundNo, slot });
+    }
+  }
+  return out;
+}
+
+function bracketProgress(kb) {
+  let done = 0, total = 0;
+  for (const { slot } of bracketSlotMatches(kb)) {
+    total++;
+    if (slot.status === 'done') done++;
+  }
+  return { done, total };
 }
 
 function renderMatches() {
   renderMatchesOverview();
   renderLiveOverview();
   const root = $('#matches-list');
-  root.replaceChildren(...state.groups.map(g => {
+  const groupCards = state.groups.map(g => {
     const pendingRounds = [];
     const doneRounds = [];
     let pendingCount = 0, doneCount = 0;
@@ -1063,30 +1086,67 @@ function renderMatches() {
       renderMatchesSection(g, 'pending', pendingCount, pendingRounds),
       renderMatchesSection(g, 'done', doneCount, doneRounds),
     );
-  }));
+  });
+
+  const bracketCards = state.knockouts.map(kb => {
+    const items = bracketSlotMatches(kb);
+    const pendingByRound = new Map(), doneByRound = new Map();
+    let pendingCount = 0, doneCount = 0;
+    for (const { roundNo, slot } of items) {
+      const isDone = slot.status === 'done';
+      const bucket = isDone ? doneByRound : pendingByRound;
+      if (!bucket.has(roundNo)) bucket.set(roundNo, []);
+      bucket.get(roundNo).push(slot);
+      if (isDone) doneCount++; else pendingCount++;
+    }
+    const sorted = (m) => [...m.entries()].sort((a, b) => a[0] - b[0]).map(([roundNo, slots]) => ({ roundNo, slots }));
+    const label = bracketLabel(kb);
+    return el('div', { class: 'card', id: `matches-bracket-${kb.id}` },
+      el('h3', {}, kb.name, label ? el('span', { class: 'muted' }, ` (${label})`) : null,
+        el('span', { class: 'muted' }, ' · KO')),
+      renderKnockoutMatchesSection(kb, 'pending', pendingCount, sorted(pendingByRound)),
+      renderKnockoutMatchesSection(kb, 'done', doneCount, sorted(doneByRound)),
+    );
+  });
+
+  root.replaceChildren(...groupCards, ...bracketCards);
 }
 
 function renderMatchesOverview() {
   const root = $('#matches-overview');
-  if (state.groups.length === 0) {
-    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet.'));
+  if (state.groups.length === 0 && state.knockouts.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No groups or brackets yet.'));
     return;
   }
-  root.replaceChildren(el('ul', { class: 'overview-list' },
+  const jumpTo = (id) => (e) => {
+    e.preventDefault();
+    const card = document.getElementById(id);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const items = [
     ...state.groups.map(g => {
       const { done, total } = matchProgress(g);
+      const anchor = `matches-group-${g.id}`;
       return el('li', {},
-        el('a', { href: `#matches-group-${g.id}`, on: { click: (e) => {
-          e.preventDefault();
-          const card = document.getElementById(`matches-group-${g.id}`);
-          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } } }, g.name),
+        el('a', { href: `#${anchor}`, on: { click: jumpTo(anchor) } }, g.name),
         total > 0
           ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
           : el('span', { class: 'muted' }, ' · no matches yet'),
       );
     }),
-  ));
+    ...state.knockouts.map(kb => {
+      const { done, total } = bracketProgress(kb);
+      const anchor = `matches-bracket-${kb.id}`;
+      return el('li', {},
+        el('a', { href: `#${anchor}`, on: { click: jumpTo(anchor) } }, kb.name),
+        el('span', { class: 'muted' }, ' · KO'),
+        total > 0
+          ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
+          : el('span', { class: 'muted' }, ' · waiting on group results'),
+      );
+    }),
+  ];
+  root.replaceChildren(el('ul', { class: 'overview-list' }, ...items));
 }
 
 // "1" < "2" < "10"; non-numeric courts sort lexicographically after numeric;
@@ -1113,7 +1173,16 @@ function renderLiveOverview() {
   for (const g of state.groups) {
     for (const r of g.rounds) {
       for (const m of r.matches) {
-        if (m.status === 'live') live.push({ g, r, m });
+        if (m.status === 'live') live.push({ kind: 'group', g, roundNo: r.roundNo, m });
+      }
+    }
+  }
+  for (const kb of state.knockouts) {
+    for (const r of kb.rounds) {
+      for (const slot of r.slots) {
+        if (slot.status === 'live' && slot.p1 && slot.p2) {
+          live.push({ kind: 'ko', kb, roundNo: r.roundNo, m: slot });
+        }
       }
     }
   }
@@ -1122,22 +1191,27 @@ function renderLiveOverview() {
     return;
   }
   live.sort((a, b) => compareCourts(a.m.court, b.m.court));
+  const jumpTo = (id) => (e) => {
+    e.preventDefault();
+    const card = document.getElementById(id);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   root.replaceChildren(el('ul', { class: 'overview-list' },
-    ...live.map(({ g, r, m }) => el('li', {},
-      el('span', { class: 'live-court' }, m.court ? `Court ${m.court}` : 'No court'),
-      el('span', {}, ` · ${nameOf(m.p1)} vs ${nameOf(m.p2)} `),
-      el('a', { class: 'muted', href: `#matches-group-${g.id}`, on: { click: (e) => {
-        e.preventDefault();
-        const card = document.getElementById(`matches-group-${g.id}`);
-        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } } }, `${g.name} · R${r.roundNo}`),
-    )),
+    ...live.map(item => {
+      const anchor = item.kind === 'group' ? `matches-group-${item.g.id}` : `matches-bracket-${item.kb.id}`;
+      const label = item.kind === 'group' ? `${item.g.name} · R${item.roundNo}` : `${item.kb.name} · KO R${item.roundNo}`;
+      return el('li', {},
+        el('span', { class: 'live-court' }, item.m.court ? `Court ${item.m.court}` : 'No court'),
+        el('span', {}, ` · ${nameOf(item.m.p1)} vs ${nameOf(item.m.p2)} `),
+        el('a', { class: 'muted', href: `#${anchor}`, on: { click: jumpTo(anchor) } }, label),
+      );
+    }),
   ));
 }
 
 function renderMatchesSection(g, kind, count, rounds) {
   const key = `${g.id}:${kind}`;
-  const open = isSectionOpen(g.id, kind);
+  const open = isSectionOpen(key);
   const label = kind === 'pending' ? 'Pending' : 'Done';
   return el('details', {
     class: 'matches-section',
@@ -1154,6 +1228,86 @@ function renderMatchesSection(g, kind, count, rounds) {
           el('h4', {}, `Round ${r.roundNo}`),
           ...r.matches.map(m => renderMatchRow(g, m)),
         ))),
+  );
+}
+
+function renderKnockoutMatchesSection(kb, kind, count, byRound) {
+  const key = `b-${kb.id}:${kind}`;
+  const open = isSectionOpen(key);
+  const label = kind === 'pending' ? 'Pending' : 'Done';
+  return el('details', {
+    class: 'matches-section',
+    ...(open ? { open: true } : {}),
+    on: { toggle: (e) => {
+      if (e.target.open) { matchesSectionsOpen.add(key); matchesSectionsClosed.delete(key); }
+      else { matchesSectionsClosed.add(key); matchesSectionsOpen.delete(key); }
+    } },
+  },
+    el('summary', {}, `${label} (${count})`),
+    byRound.length === 0
+      ? el('p', { class: 'muted' }, `No ${label.toLowerCase()} matches.`)
+      : el('div', {}, ...byRound.map(r => el('div', {},
+          el('h4', {}, `Round ${r.roundNo}`),
+          ...r.slots.map(slot => renderKnockoutMatchRow(kb, r.roundNo, slot)),
+        ))),
+  );
+}
+
+function renderKnockoutMatchRow(kb, roundNo, slot) {
+  const sets = slot.score.length ? slot.score : [[null, null], [null, null], [null, null]];
+  const scoreInputs = el('div', { class: 'match-scores' },
+    ...sets.map(([a, b], idx) => el('span', { class: 'score-pair' },
+      el('input', { class: 'score', type: 'number', min: 0, value: a ?? '', 'data-idx': idx, 'data-side': 'a' }),
+      el('span', { class: 'muted' }, '-'),
+      el('input', { class: 'score', type: 'number', min: 0, value: b ?? '', 'data-idx': idx, 'data-side': 'b' }),
+    )),
+  );
+  attachScoreValidation(scoreInputs);
+  const courtInput = el('input', { class: 'court-input', value: slot.court ?? '', placeholder: 'Court' });
+
+  function readScore() {
+    const score = [];
+    for (let i = 0; i < 3; i++) {
+      const aIn = scoreInputs.querySelector(`input[data-idx="${i}"][data-side="a"]`);
+      const bIn = scoreInputs.querySelector(`input[data-idx="${i}"][data-side="b"]`);
+      const a = aIn.value === '' ? null : Number(aIn.value);
+      const b = bIn.value === '' ? null : Number(bIn.value);
+      if (a == null || b == null) continue;
+      score.push([a, b]);
+    }
+    return score;
+  }
+
+  async function markLive() {
+    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
+      score: readScore(), status: 'live', court: courtInput.value,
+    });
+    await refresh();
+  }
+
+  async function winFor(playerId) {
+    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
+      score: readScore(), winner: playerId, court: courtInput.value,
+    });
+    await refresh();
+  }
+
+  return el('div', { class: 'match', id: `ko-match-${kb.id}-${roundNo}-${slot.slot}` },
+    el('div', { class: 'match-court' }, courtInput),
+    el('div', { class: 'match-players' },
+      el('span', { class: slot.winner === slot.p1 ? 'winner' : '' }, nameOf(slot.p1)),
+      el('span', { class: 'muted' }, 'vs'),
+      el('span', { class: slot.winner === slot.p2 ? 'winner' : '' }, nameOf(slot.p2)),
+    ),
+    el('div', { class: 'match-actions' },
+      scoreInputs,
+      el('div', { class: 'match-buttons' },
+        el('button', { class: 'ghost', title: 'Mark live', on: { click: markLive } }, '▶'),
+        el('button', { title: `Win for ${nameOf(slot.p1)}`, on: { click: () => winFor(slot.p1) } }, `Win ${nameOf(slot.p1)}`),
+        el('button', { title: `Win for ${nameOf(slot.p2)}`, on: { click: () => winFor(slot.p2) } }, `Win ${nameOf(slot.p2)}`),
+        el('span', { class: 'status ' + slot.status }, slot.status),
+      ),
+    ),
   );
 }
 
@@ -1217,80 +1371,455 @@ function renderMatchRow(g, m) {
 }
 
 // -- Bracket ------------------------------------------------------------------
-$('#create-bracket').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const size = Number(new FormData(e.target).get('size'));
-  const sortedBySeed = [...state.participants]
-    .filter(p => !p.withdrawn)
-    .sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
-  const seeds = sortedBySeed.slice(0, size).map(p => p.id);
-  await post('/api/knockout', { size, seeds });
-  await refresh();
+// The wizard's transient state lives in module scope so renderBracketWizard()
+// can re-render without losing form input. `null` = wizard closed.
+let bracketWizard = null;
+// Per-candidate-row checkbox selection survives re-renders.
+const wizardSelected = new Set();
+
+function nextPow2(n) {
+  let p = 1;
+  while (p < n) p *= 2;
+  return Math.max(2, p);
+}
+
+function bracketLabel(kb) {
+  const parts = [];
+  if (kb.category) parts.push(kb.category);
+  if (kb.classes && kb.classes.length) parts.push(kb.classes.join('/'));
+  return parts.join(' · ');
+}
+
+$('#open-bracket-wizard').addEventListener('click', () => {
+  if (bracketWizard) { closeBracketWizard(); return; }
+  bracketWizard = {
+    name: defaultBracketName('', []),
+    nameDirty: false,     // until the operator types in the name field, follow category/classes
+    category: '',
+    classes: [],
+    size: 8,
+    seeds: [],            // ordered list of participant IDs
+    sort: { key: 'rank', dir: 'asc' },
+    filter: '',
+  };
+  wizardSelected.clear();
+  renderBracketWizard();
 });
 
-$('#delete-bracket').addEventListener('click', async () => {
-  if (!confirm('Delete bracket?')) return;
-  await del('/api/knockout'); await refresh();
-});
+function defaultBracketName(category, classes) {
+  const tag = [category, classes.join('/')].filter(Boolean).join('-');
+  return tag ? `${tag} KO` : 'KO';
+}
+
+function syncBracketName() {
+  if (bracketWizard && !bracketWizard.nameDirty) {
+    bracketWizard.name = defaultBracketName(bracketWizard.category, bracketWizard.classes);
+  }
+}
+
+function closeBracketWizard() {
+  bracketWizard = null;
+  wizardSelected.clear();
+  renderBracketWizard();
+}
+
+function eligibleSourceGroups() {
+  if (!bracketWizard) return [];
+  const { category, classes } = bracketWizard;
+  return state.groups.filter(g => {
+    if (category && g.category !== category) return false;
+    if (classes.length === 0) return true;
+    // group is eligible if any of its classes overlap, or it has no class
+    // restriction at all
+    if (g.classes.length === 0) return true;
+    return g.classes.some(c => classes.includes(c));
+  });
+}
+
+function bracketMemberships() {
+  // map participantId -> array of bracket names they're already in.
+  const map = new Map();
+  for (const kb of state.knockouts) {
+    for (const r of kb.rounds) {
+      for (const slot of r.slots) {
+        for (const pid of [slot.p1, slot.p2]) {
+          if (!pid) continue;
+          if (!map.has(pid)) map.set(pid, new Set());
+          map.get(pid).add(kb.name);
+        }
+      }
+    }
+  }
+  return map;
+}
+
+function candidateRows() {
+  // build per-player rows joining standings rank with group context.
+  const rows = [];
+  const groups = eligibleSourceGroups();
+  for (const g of groups) {
+    const standings = computeStandings(g);
+    for (const r of standings) {
+      rows.push({
+        participantId: r.participantId,
+        name: r.name,
+        groupId: g.id,
+        groupName: g.name,
+        rank: r.rank,
+        played: r.played,
+        won: r.won,
+        setDiff: r.setsWon - r.setsLost,
+        ptDiff: r.pointsWon - r.pointsLost,
+      });
+    }
+  }
+  return rows;
+}
+
+function sortCandidates(rows) {
+  const { key, dir } = bracketWizard.sort;
+  const mul = dir === 'asc' ? 1 : -1;
+  const cmp = {
+    rank: (a, b) => (a.rank - b.rank) * mul,
+    name: (a, b) => a.name.localeCompare(b.name) * mul,
+    group: (a, b) => a.groupName.localeCompare(b.groupName) * mul,
+    won: (a, b) => (a.won - b.won) * mul,
+    setDiff: (a, b) => (a.setDiff - b.setDiff) * mul,
+    ptDiff: (a, b) => (a.ptDiff - b.ptDiff) * mul,
+  }[key] ?? ((a, b) => 0);
+  return [...rows].sort(cmp);
+}
+
+function renderBracketWizard() {
+  const root = $('#bracket-wizard');
+  root.replaceChildren();
+  if (!bracketWizard) return;
+
+  const w = bracketWizard;
+  const seedSet = new Set(w.seeds);
+  const memberships = bracketMemberships();
+
+  const nameInput = el('input', { placeholder: 'Bracket name (e.g. MS-A KO)', value: w.name, style: 'min-width:18rem' });
+  nameInput.addEventListener('input', () => {
+    w.name = nameInput.value;
+    w.nameDirty = true;
+  });
+
+  function makeCategorySelect() {
+    return el('select', { on: { change: (e) => {
+      w.category = e.target.value;
+      syncBracketName();
+      renderBracketWizard();
+    } } },
+      ...['', 'MS', 'WS', 'MD', 'WD', 'MX'].map(c =>
+        el('option', { value: c, ...(c === w.category ? { selected: true } : {}) }, c || 'Any category'),
+      ),
+    );
+  }
+
+  function makeClassChecks() {
+    return el('fieldset', { class: 'inline-checks' },
+      el('legend', {}, 'Classes'),
+      ...['S', 'A', 'B', 'C', 'D'].map(c => el('label', {},
+        el('input', { type: 'checkbox', value: c, ...(w.classes.includes(c) ? { checked: true } : {}), on: { change: (e) => {
+          if (e.target.checked) w.classes = [...w.classes, c];
+          else w.classes = w.classes.filter(x => x !== c);
+          syncBracketName();
+          renderBracketWizard();
+        } } }),
+        ' ', c,
+      )),
+    );
+  }
+
+  const sizeInput = el('input', { type: 'number', min: 2, value: w.size, style: 'width:5rem' });
+  sizeInput.addEventListener('change', () => {
+    const v = Number(sizeInput.value);
+    if (!Number.isFinite(v) || v < 2) { sizeInput.value = w.size; return; }
+    w.size = v;
+    // trim seeds that no longer fit
+    if (w.seeds.length > v) w.seeds = w.seeds.slice(0, v);
+    renderBracketWizard();
+  });
+
+  const filtersRow = el('div', { class: 'row', style: 'gap:0.75rem; flex-wrap:wrap; align-items:center; margin-bottom:0.5rem' },
+    makeCategorySelect(),
+    makeClassChecks(),
+    el('label', {}, 'Players: ', sizeInput),
+    el('span', { class: 'muted' }, `(${w.seeds.length}/${w.size} added, bracket size ${nextPow2(w.size)})`),
+    el('button', { class: 'ghost', style: 'margin-left:auto', on: { click: closeBracketWizard } }, 'Cancel'),
+  );
+  const nameRow = el('div', { class: 'row', style: 'gap:0.5rem; align-items:center; margin-bottom:0.5rem' },
+    el('label', {}, 'Name: ', nameInput),
+  );
+
+  const sources = eligibleSourceGroups();
+
+  // Quick action: add all table leaders
+  const addLeadersBtn = el('button', { type: 'button', on: { click: () => {
+    const newSeeds = [...w.seeds];
+    for (const g of sources) {
+      const standings = computeStandings(g);
+      const leader = standings.find(r => r.rank === 1 && r.played > 0);
+      if (!leader) continue;
+      if (newSeeds.includes(leader.participantId)) continue;
+      if (newSeeds.length >= w.size) break;
+      newSeeds.push(leader.participantId);
+    }
+    w.seeds = newSeeds;
+    renderBracketWizard();
+  } } }, 'Add all table leaders');
+
+  // Candidate picker (hides already-seeded; shows withdrawn + other-bracket badges)
+  const allRows = candidateRows();
+  const visible = sortCandidates(allRows.filter(r => {
+    if (seedSet.has(r.participantId)) return false;
+    if (w.filter) {
+      const needle = w.filter.toLowerCase();
+      const p = state.participants.find(x => x.id === r.participantId);
+      const hay = `${r.name} ${p?.club ?? ''}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  }));
+
+  // Drop selections that are no longer visible (e.g. after a filter narrows).
+  for (const id of [...wizardSelected]) {
+    if (!visible.some(r => r.participantId === id)) wizardSelected.delete(id);
+  }
+
+  const filterInput = el('input', { placeholder: 'Filter by name/club…', value: w.filter, style: 'min-width:14rem' });
+  filterInput.addEventListener('input', () => {
+    w.filter = filterInput.value;
+    // re-render but keep focus & caret on filter input
+    const start = filterInput.selectionStart;
+    renderBracketWizard();
+    const fresh = $('#bracket-wizard input[data-role="filter"]');
+    if (fresh) { fresh.focus(); fresh.setSelectionRange(start, start); }
+  });
+  filterInput.setAttribute('data-role', 'filter');
+
+  function sortHeader(label, key) {
+    const arrow = w.sort.key === key ? (w.sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return el('th', { class: 'num sortable', style: 'cursor:pointer; user-select:none',
+      on: { click: () => {
+        if (w.sort.key === key) w.sort.dir = w.sort.dir === 'asc' ? 'desc' : 'asc';
+        else { w.sort.key = key; w.sort.dir = (key === 'rank' || key === 'name' || key === 'group') ? 'asc' : 'desc'; }
+        renderBracketWizard();
+      } } }, label + arrow);
+  }
+
+  const allSelectable = visible.length > 0 && visible.every(r => wizardSelected.has(r.participantId));
+  const selectAllCb = el('input', { type: 'checkbox', ...(allSelectable ? { checked: true } : {}), on: { change: (e) => {
+    if (e.target.checked) for (const r of visible) wizardSelected.add(r.participantId);
+    else wizardSelected.clear();
+    renderBracketWizard();
+  } } });
+
+  const table = el('table', { class: 'standings candidate-table' },
+    el('thead', {}, el('tr', {},
+      el('th', { style: 'width:1.5rem' }, selectAllCb),
+      sortHeader('Player', 'name'),
+      sortHeader('Group', 'group'),
+      sortHeader('Rank', 'rank'),
+      sortHeader('W', 'won'),
+      sortHeader('Set diff', 'setDiff'),
+      sortHeader('Pt diff', 'ptDiff'),
+      el('th', {}, ''),
+    )),
+    el('tbody', {}, ...(visible.length === 0
+      ? [el('tr', {}, el('td', { colspan: 8, class: 'muted' }, 'No candidate players.'))]
+      : visible.map(r => {
+          const p = state.participants.find(x => x.id === r.participantId);
+          const inOther = memberships.get(r.participantId);
+          return el('tr', { class: p?.withdrawn ? 'withdrawn-row' : '' },
+            el('td', {}, el('input', { type: 'checkbox', ...(wizardSelected.has(r.participantId) ? { checked: true } : {}),
+              on: { change: (e) => {
+                if (e.target.checked) wizardSelected.add(r.participantId);
+                else wizardSelected.delete(r.participantId);
+                renderBracketWizard();
+              } } })),
+            el('td', {}, r.name,
+              p?.withdrawn ? el('span', { class: 'badge warn', style: 'margin-left:0.4rem' }, 'withdrawn') : null,
+              inOther ? el('span', { class: 'badge muted', style: 'margin-left:0.4rem' }, `in ${[...inOther].join(', ')}`) : null,
+            ),
+            el('td', { class: 'muted' }, r.groupName),
+            el('td', { class: 'num' }, String(r.rank)),
+            el('td', { class: 'num' }, String(r.won)),
+            el('td', { class: 'num' }, String(r.setDiff)),
+            el('td', { class: 'num' }, String(r.ptDiff)),
+            el('td', {}, el('button', { class: 'ghost', on: { click: () => {
+              if (w.seeds.length >= w.size) return alert(`Bracket is full (${w.size}).`);
+              if (!w.seeds.includes(r.participantId)) w.seeds.push(r.participantId);
+              renderBracketWizard();
+            } } }, '+')),
+          );
+        })
+      )),
+  );
+
+  const addSelectedBtn = el('button', { type: 'button', on: { click: () => {
+    const room = w.size - w.seeds.length;
+    if (room <= 0) return alert(`Bracket is full (${w.size}).`);
+    const picked = [...wizardSelected].filter(id => !w.seeds.includes(id)).slice(0, room);
+    w.seeds.push(...picked);
+    wizardSelected.clear();
+    renderBracketWizard();
+  } } }, `Add selected (${wizardSelected.size})`);
+
+  // Quick action: fill the bracket with the top X of the current sort/filter.
+  // X = bracket player count. Disabled when the bracket is already full.
+  const roomLeft = w.size - w.seeds.length;
+  const addTopBtn = el('button', {
+    type: 'button',
+    ...(roomLeft <= 0 ? { disabled: true } : {}),
+    on: { click: () => {
+      if (roomLeft <= 0) return;
+      const picked = visible.slice(0, roomLeft).map(r => r.participantId);
+      w.seeds.push(...picked);
+      renderBracketWizard();
+    } },
+  }, `Add top ${w.size}`);
+
+  // Seed list (ordered)
+  const seedList = el('ol', { class: 'seed-list' },
+    ...(w.seeds.length === 0
+      ? [el('li', { class: 'muted' }, '(no seeds yet)')]
+      : w.seeds.map((id, idx) => el('li', { class: 'seed-row' },
+          el('span', {}, nameOf(id)),
+          el('span', { class: 'seed-actions' },
+            el('button', { class: 'ghost', title: 'Move up', disabled: idx === 0,
+              on: { click: () => { if (idx > 0) { [w.seeds[idx - 1], w.seeds[idx]] = [w.seeds[idx], w.seeds[idx - 1]]; renderBracketWizard(); } } } }, '↑'),
+            el('button', { class: 'ghost', title: 'Move down', disabled: idx === w.seeds.length - 1,
+              on: { click: () => { if (idx < w.seeds.length - 1) { [w.seeds[idx], w.seeds[idx + 1]] = [w.seeds[idx + 1], w.seeds[idx]]; renderBracketWizard(); } } } }, '↓'),
+            el('button', { class: 'ghost', title: 'Remove',
+              on: { click: () => { w.seeds.splice(idx, 1); renderBracketWizard(); } } }, '✕'),
+          ),
+        ))),
+  );
+
+  const createBtn = el('button', { on: { click: async () => {
+    if (!w.name.trim()) return alert('Bracket name is required.');
+    if (w.seeds.length === 0) return alert('Add at least one seed.');
+    try {
+      await post('/api/knockouts', {
+        name: w.name.trim(),
+        category: w.category,
+        classes: w.classes,
+        size: w.size,
+        seeds: w.seeds,
+      });
+      closeBracketWizard();
+      await refresh();
+    } catch (err) { alert(err.message); }
+  } } }, 'Create bracket');
+
+  root.append(el('div', { class: 'card bracket-wizard' },
+    el('h3', {}, 'New bracket'),
+    filtersRow,
+    nameRow,
+    el('div', { class: 'row', style: 'gap:0.5rem; margin:0.5rem 0; flex-wrap:wrap; align-items:center' },
+      el('strong', {}, 'Candidates'),
+      filterInput,
+      addLeadersBtn,
+      addTopBtn,
+      addSelectedBtn,
+    ),
+    el('div', { class: 'candidate-wrap' }, table),
+    el('div', { class: 'row', style: 'justify-content:space-between; align-items:center; margin-top:1rem' },
+      el('h4', { style: 'margin:0' }, 'Seeds (in order = seed #)'),
+      el('button', {
+        class: 'ghost',
+        ...(w.seeds.length === 0 ? { disabled: true } : {}),
+        on: { click: () => {
+          if (w.seeds.length === 0) return;
+          w.seeds = [];
+          renderBracketWizard();
+        } },
+      }, 'Clear all'),
+    ),
+    seedList,
+    el('div', { class: 'row', style: 'gap:0.5rem; margin-top:0.75rem' },
+      createBtn,
+      el('button', { class: 'ghost', on: { click: closeBracketWizard } }, 'Cancel'),
+    ),
+  ));
+}
 
 function renderBracket() {
-  const root = $('#bracket-view');
+  const root = $('#bracket-list');
   root.replaceChildren();
-  if (!state.knockout) {
-    root.append(el('p', { class: 'muted' }, 'No bracket yet.'));
+  if (state.knockouts.length === 0) {
+    root.append(el('p', { class: 'muted' }, 'No brackets yet. Click "+ Create a bracket" above.'));
     return;
   }
-  for (const round of state.knockout.rounds) {
+  for (const kb of state.knockouts) root.append(renderBracketCard(kb));
+}
+
+function renderBracketCard(kb) {
+  const label = bracketLabel(kb);
+  const cols = el('div', { class: 'bracket-cols' });
+  for (const round of kb.rounds) {
     const col = el('div', { class: 'bracket-round' },
       el('h4', {}, `Round ${round.roundNo}`),
     );
     for (const slot of round.slots) {
-      col.append(renderBracketSlot(round.roundNo, slot));
+      col.append(renderBracketSlot(kb, round.roundNo, slot));
     }
-    root.append(col);
+    cols.append(col);
   }
+  return el('div', { class: 'card bracket-card' },
+    el('div', { class: 'row', style: 'justify-content:space-between; align-items:center' },
+      el('h3', {}, kb.name, label ? el('span', { class: 'muted' }, ` (${label})`) : null,
+        el('span', { class: 'muted' }, ` · size ${kb.size}`)),
+      el('button', { class: 'danger', on: { click: async () => {
+        if (!confirm(`Delete bracket "${kb.name}"?`)) return;
+        await del(`/api/knockouts/${kb.id}`); await refresh();
+      } } }, 'Delete bracket'),
+    ),
+    cols,
+  );
 }
 
-function renderBracketSlot(roundNo, slot) {
+// Read-only display of a single slot. Click jumps to the Matches tab for
+// scoring. Slots without both players aren't clickable (nothing to score yet).
+function renderBracketSlot(kb, roundNo, slot) {
   const a = slot.p1 ? nameOf(slot.p1) : '—';
   const b = slot.p2 ? nameOf(slot.p2) : '—';
   const winnerClass = (id) => slot.winner === id ? 'winner' : '';
-
-  const sets = slot.score.length ? slot.score : [[null, null], [null, null], [null, null]];
-  const scoreInputs = el('div', { class: 'row' },
-    ...sets.map(([sa, sb], idx) => el('span', { class: 'row' },
-      el('input', { class: 'score', type: 'number', min: 0, value: sa ?? '', 'data-idx': idx, 'data-side': 'a' }),
-      el('span', {}, '-'),
-      el('input', { class: 'score', type: 'number', min: 0, value: sb ?? '', 'data-idx': idx, 'data-side': 'b' }),
-    )),
+  const scoreText = slot.score.length ? slot.score.map(([sa, sb]) => `${sa}-${sb}`).join(', ') : '';
+  const clickable = !!(slot.p1 && slot.p2);
+  return el('div', {
+    class: 'bracket-slot' + (clickable ? ' clickable' : ''),
+    ...(clickable ? { title: 'Open in Matches tab', on: { click: () => jumpToKoMatch(kb.id, roundNo, slot.slot, slot.status === 'done') } } : {}),
+  },
+    el('div', { class: 'player' }, el('span', { class: winnerClass(slot.p1) }, a)),
+    el('div', { class: 'player' }, el('span', { class: winnerClass(slot.p2) }, b)),
+    scoreText ? el('div', { class: 'muted', style: 'font-size:0.8rem; margin-top:0.2rem' }, scoreText) : null,
   );
-  attachScoreValidation(scoreInputs);
+}
 
-  async function save(winnerId) {
-    const score = [];
-    for (let i = 0; i < 3; i++) {
-      const aIn = scoreInputs.querySelector(`input[data-idx="${i}"][data-side="a"]`);
-      const bIn = scoreInputs.querySelector(`input[data-idx="${i}"][data-side="b"]`);
-      const av = aIn.value === '' ? null : Number(aIn.value);
-      const bv = bIn.value === '' ? null : Number(bIn.value);
-      if (av == null || bv == null) continue;
-      score.push([av, bv]);
-    }
-    await patch(`/api/knockout/round/${roundNo}/slot/${slot.slot}`, { score, winner: winnerId });
-    await refresh();
-  }
+function activateTab(name) {
+  $$('nav#tabs a').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === name));
+}
 
-  return el('div', { class: 'bracket-slot' },
-    el('div', { class: 'player' },
-      el('span', { class: winnerClass(slot.p1) }, a),
-      slot.p1 && slot.p2 ? el('button', { class: 'ghost', on: { click: () => save(slot.p1) } }, 'Win') : null,
-    ),
-    el('div', { class: 'player' },
-      el('span', { class: winnerClass(slot.p2) }, b),
-      slot.p1 && slot.p2 ? el('button', { class: 'ghost', on: { click: () => save(slot.p2) } }, 'Win') : null,
-    ),
-    slot.p1 && slot.p2 ? scoreInputs : null,
-  );
+function jumpToKoMatch(kbId, roundNo, slotNo, isDone) {
+  activateTab('matches');
+  // Force the right section open (done is collapsed by default).
+  const key = `b-${kbId}:${isDone ? 'done' : 'pending'}`;
+  matchesSectionsOpen.add(key);
+  matchesSectionsClosed.delete(key);
+  renderMatches();
+  // Wait a tick for the DOM to settle, then scroll + flash.
+  requestAnimationFrame(() => {
+    const row = document.getElementById(`ko-match-${kbId}-${roundNo}-${slotNo}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash');
+    void row.offsetWidth; // restart the animation
+    row.classList.add('flash');
+  });
 }
 
 // -- Settings -----------------------------------------------------------------

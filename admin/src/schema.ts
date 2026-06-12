@@ -55,13 +55,21 @@ export const Group = z.object({
 });
 export type Group = z.infer<typeof Group>;
 
+// Bracket slots are scored from the Matches tab just like group matches, so
+// they carry the same status/court/timestamp fields. `status` is derived in
+// the PATCH route: setting a winner forces 'done'; an explicit { status: 'live' }
+// marks the slot live without picking a winner yet.
 export const BracketSlot = z.object({
   slot: z.number().int().positive(),
   p1: z.string().nullable(),
   p2: z.string().nullable(),
   matchId: z.string().nullable(),
+  court: z.string().default(''),
   score: Score.default([]),
+  status: MatchStatus.default('pending'),
   winner: z.string().nullable(),
+  startedAt: z.string().nullable().default(null),
+  finishedAt: z.string().nullable().default(null),
 });
 export type BracketSlot = z.infer<typeof BracketSlot>;
 
@@ -71,11 +79,18 @@ export const BracketRound = z.object({
 });
 export type BracketRound = z.infer<typeof BracketRound>;
 
-export const Knockout = z.object({
+// `size` is the actual bracket size in slots (always a power of 2). The
+// operator may enter any player count N ≥ 2; the create route rounds N up
+// to the next power of 2 and seats unfilled positions as BYE.
+export const Bracket = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  category: z.string().default(''),
+  classes: z.array(z.string()).default([]),
   size: z.number().int().positive(),
   rounds: z.array(BracketRound),
 });
-export type Knockout = z.infer<typeof Knockout>;
+export type Bracket = z.infer<typeof Bracket>;
 
 export const AuditEntry = z.object({
   ts: z.string(),
@@ -85,7 +100,31 @@ export const AuditEntry = z.object({
 });
 export type AuditEntry = z.infer<typeof AuditEntry>;
 
-export const Tournament = z.object({
+// Migrate legacy `knockout: Knockout | null` field on read. Existing
+// tournament.json files from before the multi-bracket change still parse:
+// the single bracket becomes a one-element `knockouts` array.
+export const Tournament = z.preprocess((raw) => {
+  if (!raw || typeof raw !== 'object') return raw;
+  const obj = raw as Record<string, unknown>;
+  if (obj.knockouts === undefined) {
+    const legacy = obj.knockout;
+    if (legacy && typeof legacy === 'object') {
+      const k = legacy as { size: number; rounds: unknown };
+      obj.knockouts = [{
+        id: 'kb-legacy',
+        name: 'Knockout',
+        category: '',
+        classes: [],
+        size: k.size,
+        rounds: k.rounds,
+      }];
+    } else {
+      obj.knockouts = [];
+    }
+    delete obj.knockout;
+  }
+  return obj;
+}, z.object({
   tournament: z.object({
     id: z.string(),
     name: z.string(),
@@ -93,9 +132,9 @@ export const Tournament = z.object({
   }),
   participants: z.array(Participant).default([]),
   groups: z.array(Group).default([]),
-  knockout: Knockout.nullable().default(null),
+  knockouts: z.array(Bracket).default([]),
   auditLog: z.array(AuditEntry).default([]),
-});
+}));
 export type Tournament = z.infer<typeof Tournament>;
 
 export function emptyTournament(): Tournament {

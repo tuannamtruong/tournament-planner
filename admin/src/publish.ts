@@ -128,23 +128,29 @@ export function deriveViews(state: Tournament) {
     })),
   }));
 
-  const knockout = state.knockout ? {
-    size: state.knockout.size,
-    rounds: state.knockout.rounds.map(r => ({
+  const brackets = state.knockouts.map(kb => ({
+    id: kb.id,
+    name: kb.name,
+    category: kb.category,
+    classes: kb.classes,
+    size: kb.size,
+    rounds: kb.rounds.map(r => ({
       roundNo: r.roundNo,
       slots: r.slots.map(s => ({
         slot: s.slot,
         p1: s.p1 ? nameOf(state, s.p1) : null,
         p2: s.p2 ? nameOf(state, s.p2) : null,
+        court: s.court,
         score: s.score,
+        status: s.status,
         winner: s.winner ? nameOf(state, s.winner) : null,
       })),
     })),
-  } : null;
+  }));
 
   return {
     version: { updatedAt: state.tournament.updatedAt, name: state.tournament.name },
     groups: { tournament: state.tournament.name, groups },
-    knockout,
+    knockout: { tournament: state.tournament.name, brackets },
   };
 }

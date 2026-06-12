@@ -81,7 +81,7 @@ const DATA = path.join(tmp, 'tournament.json');
 // to invent one — and so the smoke run is deterministic.
 writeFileSync(DATA, JSON.stringify({
   tournament: { id: 'tp-driver', name: 'Driver Run', updatedAt: new Date().toISOString() },
-  participants: [], groups: [], knockout: null, auditLog: [],
+  participants: [], groups: [], knockouts: [], auditLog: [],
 }, null, 2));
 
 let server;
@@ -219,11 +219,26 @@ async function smoke() {
   assert(scored.status === 'done' && scored.startedAt && scored.finishedAt, 'live/done timestamps not stamped');
   console.log(`✓ scored match ${m.id} (status=done, court=${scored.court})`);
 
-  // 6. Create a 4-slot knockout so the bracket view has content.
-  await api('POST', '/api/knockout', { size: 4, seeds: players.map(p => p.id) });
+  // 6. Create a 4-player knockout so the bracket view has content.
+  await api('POST', '/api/knockouts', {
+    name: 'WS-A KO',
+    category: 'WS', classes: ['A'],
+    size: 4,
+    seeds: players.map(p => p.id),
+  });
   s = await api('GET', '/api/state');
-  assert(s.knockout?.size === 4, 'knockout not created');
-  console.log(`✓ created 4-slot bracket`);
+  assert(s.knockouts?.length === 1 && s.knockouts[0].size === 4, 'knockout not created');
+  console.log(`✓ created 4-slot bracket ${s.knockouts[0].id}`);
+
+  // 6b. Odd N → round up with byes.
+  await api('POST', '/api/knockouts', {
+    name: 'Odd Test', category: 'WS', classes: ['A'],
+    size: 3, seeds: players.slice(0, 3).map(p => p.id),
+  });
+  s = await api('GET', '/api/state');
+  const odd = s.knockouts[1];
+  assert(odd?.size === 4 && odd.rounds[0].slots.length === 2, `odd-N bracket should be padded to size 4 (got ${odd?.size})`);
+  console.log(`✓ odd N=3 rounded up to size ${odd.size} with byes`);
 
   // 7. Public view JSONs — what spectators would fetch from S3.
   const version = await api('GET', '/view/data/version.json');
@@ -232,7 +247,8 @@ async function smoke() {
   assert(version.name === 'Smoke Cup', 'version.json name wrong');
   assert(Array.isArray(groupsView.groups) && groupsView.groups[0].standings?.length === 4,
          'standings not pre-computed in groups.json');
-  assert(knockoutView && knockoutView.rounds?.[0]?.slots?.length === 2, 'knockout view shape wrong');
+  assert(Array.isArray(knockoutView?.brackets) && knockoutView.brackets[0].rounds?.[0]?.slots?.length === 2,
+         'knockout view shape wrong');
   console.log(`✓ /view/data/{version,groups,knockout}.json render correctly`);
 
   // 8. Publish status — should be `configured: false` since TP_BUCKET is unset.
