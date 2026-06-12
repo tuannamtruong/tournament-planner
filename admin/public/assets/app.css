@@ -192,6 +192,25 @@ th { background: #f3f4f6; font-weight: 600; }
   font-size: 0.9rem;
 }
 
+.bulk-delete-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.5rem 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.bulk-delete-row {
+  padding: 0.15rem 0.35rem;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+.bulk-delete-row:hover { background: #f3f4f6; }
+
 .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .muted { color: var(--muted); font-size: 0.85rem; }
 

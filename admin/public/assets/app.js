@@ -32,6 +32,7 @@ async function refresh() {
   if (renamerInput && document.activeElement !== renamerInput) renamerInput.value = state.tournament.name;
   renderParticipants();
   renderGroupsOverview();
+  renderBulkDelete();
   renderGroupstage();
   renderMatches();
   renderBracket();
@@ -342,6 +343,93 @@ $('#auto-generate-groups').addEventListener('click', async () => {
   await refresh();
   syncDefaultGroupName();
 });
+
+// -- Bulk delete --------------------------------------------------------------
+// Persist selection across the re-renders triggered by other tabs/actions.
+const bulkDeleteSelected = new Set();
+
+function comboKeyOf(g) { return `${g.category || ''}::${classList(g).join('/')}`; }
+function comboLabelOf(g) {
+  return [g.category, classList(g).join('/')].filter(Boolean).join('-') || '(no category)';
+}
+
+function renderBulkDelete() {
+  const root = $('#groups-bulk-list');
+  if (!root) return;
+
+  // Drop selections for groups that no longer exist.
+  const live = new Set(state.groups.map(g => g.id));
+  for (const id of [...bulkDeleteSelected]) if (!live.has(id)) bulkDeleteSelected.delete(id);
+
+  if (state.groups.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No groups to delete.'));
+    return;
+  }
+
+  const combos = new Map();
+  for (const g of state.groups) {
+    const key = comboKeyOf(g);
+    if (!combos.has(key)) combos.set(key, { label: comboLabelOf(g), ids: [] });
+    combos.get(key).ids.push(g.id);
+  }
+
+  const allIds = state.groups.map(g => g.id);
+  const allSelected = allIds.every(id => bulkDeleteSelected.has(id));
+
+  const quickButtons = el('div', { class: 'row', style: 'gap:0.4rem; flex-wrap:wrap; margin:0.5rem 0' },
+    el('span', { class: 'muted' }, 'Select:'),
+    el('button', { type: 'button', class: 'ghost', on: { click: () => {
+      if (allSelected) allIds.forEach(id => bulkDeleteSelected.delete(id));
+      else allIds.forEach(id => bulkDeleteSelected.add(id));
+      renderBulkDelete();
+    } } }, allSelected ? 'Clear all' : 'All groups'),
+    ...[...combos.values()].map(c => el('button', { type: 'button', class: 'ghost', on: { click: () => {
+      const allInComboSelected = c.ids.every(id => bulkDeleteSelected.has(id));
+      if (allInComboSelected) c.ids.forEach(id => bulkDeleteSelected.delete(id));
+      else c.ids.forEach(id => bulkDeleteSelected.add(id));
+      renderBulkDelete();
+    } } }, c.label)),
+  );
+
+  const checklist = el('div', { class: 'bulk-delete-list' },
+    ...state.groups.map(g => el('label', { class: 'row bulk-delete-row' },
+      el('input', {
+        type: 'checkbox',
+        ...(bulkDeleteSelected.has(g.id) ? { checked: true } : {}),
+        on: { change: (e) => {
+          if (e.target.checked) bulkDeleteSelected.add(g.id);
+          else bulkDeleteSelected.delete(g.id);
+          const btn = $('#bulk-delete-action');
+          if (btn) btn.textContent = `Delete selected (${bulkDeleteSelected.size})`;
+        } },
+      }),
+      el('span', {}, g.name),
+      el('span', { class: 'muted' }, ` · ${groupLabel(g)} · ${g.members.length} member${g.members.length === 1 ? '' : 's'}`),
+    )),
+  );
+
+  const deleteBtn = el('button', {
+    id: 'bulk-delete-action',
+    type: 'button',
+    class: 'danger',
+    style: 'margin-top:0.5rem',
+    on: { click: async () => {
+      if (bulkDeleteSelected.size === 0) return alert('No groups selected.');
+      const toDelete = state.groups.filter(g => bulkDeleteSelected.has(g.id));
+      const msg = `Delete ${toDelete.length} group(s)?\n${toDelete.map(g => '  • ' + g.name).join('\n')}`;
+      if (!confirm(msg)) return;
+      for (const g of toDelete) {
+        groupDetailsOpen.delete(g.id);
+        try { await del(`/api/groups/${g.id}`); }
+        catch (err) { alert(`Failed to delete ${g.name}: ${err.message}`); break; }
+      }
+      bulkDeleteSelected.clear();
+      await refresh();
+    } },
+  }, `Delete selected (${bulkDeleteSelected.size})`);
+
+  root.replaceChildren(quickButtons, checklist, deleteBtn);
+}
 
 // -- Groupstage ---------------------------------------------------------------
 // Mirrors admin/src/standings.ts so the admin UI can show standings without
