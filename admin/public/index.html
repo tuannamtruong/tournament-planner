@@ -122,17 +122,19 @@
 
     <section data-tab="matches">
       <h2>Matches</h2>
-      <div class="matches-top">
-        <div class="card">
+      <div class="card" id="matches-live-card">
+        <h3>Live now</h3>
+        <div id="matches-live"></div>
+      </div>
+      <div class="card" id="matches-overview-card">
+        <div class="overview-header">
           <h3>Overview</h3>
-          <div id="matches-overview"></div>
+          <button type="button" class="ghost small" id="matches-overview-toggle">Expand all</button>
         </div>
-        <div class="card">
-          <h3>Live now</h3>
-          <div id="matches-live"></div>
-        </div>
+        <div id="matches-overview"></div>
       </div>
       <div id="matches-list"></div>
+      <button type="button" class="floating-jump" data-jump-to="matches-overview-card" title="Jump to overview">↑ Overview</button>
     </section>
 
     <section data-tab="bracket">

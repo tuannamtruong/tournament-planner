@@ -95,6 +95,19 @@ $('#push-backup').addEventListener('click', async () => {
   catch (err) { alert('Backup failed: ' + err.message); }
 });
 
+$('#groups-overview-toggle').addEventListener('click', () => {
+  toggleAllOverview($('#groups-overview'));
+});
+$('#matches-overview-toggle').addEventListener('click', () => {
+  toggleAllOverview($('#matches-overview'));
+});
+
+$$('.floating-jump').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = document.getElementById(btn.dataset.jumpTo);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
 
 // -- Participants -------------------------------------------------------------
 const CATEGORY_ORDER = ['MS', 'WS', 'MD', 'WD', 'MX'];
@@ -516,24 +529,26 @@ function matchProgress(g) {
 
 function renderGroupsOverview() {
   const root = $('#groups-overview');
-  if (state.groups.length === 0) {
-    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet.'));
-    return;
-  }
-  root.replaceChildren(el('ul', { class: 'overview-list' },
-    ...state.groups.map(g => {
+  const jumpTo = (id) => (e) => {
+    e.preventDefault();
+    const card = document.getElementById(id);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  renderOverviewTree({
+    rootEl: root,
+    items: state.groups,
+    getCat: g => g.category,
+    getCls: g => classList(g).join('/'),
+    prefix: 'g',
+    renderItem: (g) => {
       const { done, total } = matchProgress(g);
       return el('li', {},
-        el('a', { href: `#group-${g.id}`, on: { click: (e) => {
-          e.preventDefault();
-          const card = document.getElementById(`group-${g.id}`);
-          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } } }, g.name),
-        el('span', { class: 'muted' }, ` · ${groupLabel(g)} · ${g.members.length} member${g.members.length === 1 ? '' : 's'}`),
+        el('a', { href: `#group-${g.id}`, on: { click: jumpTo(`group-${g.id}`) } }, g.name),
+        el('span', { class: 'muted' }, ` · ${g.mode} · ${g.members.length} member${g.members.length === 1 ? '' : 's'}`),
         total > 0 ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`) : null,
       );
-    }),
-  ));
+    },
+  });
 }
 
 // Default name format: "<category>-<classes joined by /> <n>", where n is the
