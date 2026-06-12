@@ -95,20 +95,216 @@ $('#push-backup').addEventListener('click', async () => {
 });
 
 // -- Participants -------------------------------------------------------------
-function renderParticipants() {
-  const tbody = $('#participants-table tbody');
-  tbody.replaceChildren(...state.participants.map(p => el('tr', {},
+const CATEGORY_ORDER = ['MS', 'WS', 'MD', 'WD', 'MX'];
+const CATEGORY_LABEL = { MS: "Men's Singles", WS: "Women's Singles", MD: "Men's Doubles", WD: "Women's Doubles", MX: 'Mixed Doubles' };
+const CLASS_ORDER = ['S', 'A', 'B', 'C', 'D'];
+const DOUBLES = new Set(['MD', 'WD', 'MX']);
+
+// Persist open/closed state across re-renders. Errors section defaults to open;
+// categories default to open the first time they appear, then remember toggles.
+const participantsOpen = new Map(); // key -> bool
+function defaultOpen(key) {
+  if (!participantsOpen.has(key)) participantsOpen.set(key, true);
+  return participantsOpen.get(key);
+}
+
+function isMissingPartner(p) {
+  return DOUBLES.has(p.category) && !p.name.includes(' & ');
+}
+
+function participantRow(p, opts = {}) {
+  return el('tr', { class: opts.error ? 'p-error' : '' },
     el('td', {}, p.name),
     el('td', {}, p.club),
-    el('td', {}, p.category),
-    el('td', {}, p.class),
-    el('td', {}, String(p.seed || '')),
+    el('td', { class: 'mono' }, p.category),
+    el('td', { class: 'mono' }, p.class),
+    el('td', { class: 'num' }, String(p.seed || '')),
+    el('td', { class: 'p-note' },
+      opts.error ? el('span', { class: 'badge badge-error', title: 'Doubles entry without a partner — pair them up before drawing groups.' }, 'no partner') : null,
+    ),
     el('td', {},
       el('button', { class: 'ghost', on: { click: async () => {
         if (!confirm(`Remove ${p.name}?`)) return;
         await del(`/api/participants/${p.id}`); await refresh();
       } } }, 'Remove')),
-  )));
+  );
+}
+
+function participantsTable(rows) {
+  return el('table', { class: 'participants-table' },
+    el('thead', {},
+      el('tr', {},
+        el('th', {}, 'Name'),
+        el('th', {}, 'Club'),
+        el('th', {}, 'Cat.'),
+        el('th', {}, 'Class'),
+        el('th', { class: 'num' }, 'Seed'),
+        el('th', {}, ''),
+        el('th', {}, ''),
+      ),
+    ),
+    el('tbody', {}, ...rows),
+  );
+}
+
+async function bulkDelete(ids, label) {
+  if (ids.length === 0) return;
+  if (!confirm(`Delete ${ids.length} participant(s) — ${label}?\n\nThis also removes them from any group they're in.`)) return;
+  await post('/api/participants/bulk-delete', { ids });
+  await refresh();
+}
+
+function bulkDeleteBtn(label, ids, confirmLabel) {
+  return el('button', {
+    class: 'danger small',
+    title: `Delete ${ids.length} participant(s)`,
+    on: { click: (e) => {
+      // Stop the click from toggling the <details> when this button lives in a <summary>.
+      e.preventDefault();
+      e.stopPropagation();
+      bulkDelete(ids, confirmLabel);
+    } },
+  }, label);
+}
+
+function classDivider(cls, list) {
+  return el('tr', { class: 'class-divider' },
+    el('td', { colspan: '6' },
+      el('span', { class: 'mono' }, `Class ${cls || '·'}`),
+      el('span', { class: 'muted' }, ` · ${list.length}`),
+    ),
+    el('td', { class: 'class-divider-actions' },
+      bulkDeleteBtn(`Delete ${list.length}`, list.map(p => p.id), `class ${cls || '·'}`),
+    ),
+  );
+}
+
+function makeSection(key, summary, body) {
+  const open = defaultOpen(key);
+  return el('details', {
+    class: 'participants-section',
+    ...(open ? { open: true } : {}),
+    on: { toggle: (e) => participantsOpen.set(key, e.target.open) },
+  },
+    el('summary', {}, summary),
+    body,
+  );
+}
+
+function renderParticipants() {
+  const root = $('#participants-list');
+  const toolbar = $('#participants-toolbar');
+  const all = state.participants;
+  const errors = all.filter(isMissingPartner);
+  const sorted = (arr) => [...arr].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Top-level toolbar: total count + "delete all".
+  if (toolbar) {
+    toolbar.replaceChildren(
+      el('div', { class: 'participants-summary' },
+        el('span', { class: 'muted' }, `${all.length} participant${all.length === 1 ? '' : 's'}`),
+        all.length > 0
+          ? bulkDeleteBtn(`Delete all ${all.length}`, all.map(p => p.id), 'every participant in the tournament')
+          : null,
+      ),
+    );
+  }
+
+  const sections = [];
+
+  // Errors at the top.
+  if (errors.length > 0) {
+    const grouped = new Map();
+    for (const p of errors) {
+      const k = p.category || '·';
+      if (!grouped.has(k)) grouped.set(k, []);
+      grouped.get(k).push(p);
+    }
+    const rows = [];
+    for (const cat of CATEGORY_ORDER) {
+      const list = grouped.get(cat);
+      if (!list) continue;
+      rows.push(classDivider(`${cat} · missing partner`, list));
+      for (const p of sorted(list)) rows.push(participantRow(p, { error: true }));
+    }
+    sections.push(makeSection(
+      '__errors__',
+      el('span', { class: 'section-summary' },
+        el('span', {},
+          el('span', { class: 'badge badge-error' }, 'Errors'),
+          ' Doubles entries without a partner',
+          el('span', { class: 'muted' }, ` · ${errors.length}`),
+        ),
+        bulkDeleteBtn(`Delete all ${errors.length}`, errors.map(p => p.id), 'all errors (missing partner)'),
+      ),
+      participantsTable(rows),
+    ));
+  }
+
+  // Regular categories.
+  const byCat = new Map();
+  for (const p of all) {
+    if (isMissingPartner(p)) continue;
+    const cat = p.category || '·';
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(p);
+  }
+
+  const seen = new Set();
+  for (const cat of CATEGORY_ORDER) {
+    const list = byCat.get(cat);
+    if (!list) continue;
+    seen.add(cat);
+    sections.push(renderCategorySection(cat, list, sorted));
+  }
+  // Any non-standard categories (e.g. legacy empty) at the end.
+  for (const [cat, list] of byCat) {
+    if (seen.has(cat)) continue;
+    sections.push(renderCategorySection(cat, list, sorted));
+  }
+
+  if (sections.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No participants yet.'));
+    return;
+  }
+  root.replaceChildren(...sections);
+}
+
+function renderCategorySection(cat, list, sorted) {
+  const byClass = new Map();
+  for (const p of list) {
+    const c = p.class || '·';
+    if (!byClass.has(c)) byClass.set(c, []);
+    byClass.get(c).push(p);
+  }
+  const rows = [];
+  const seenCls = new Set();
+  for (const cls of CLASS_ORDER) {
+    const arr = byClass.get(cls);
+    if (!arr) continue;
+    seenCls.add(cls);
+    rows.push(classDivider(cls, arr));
+    for (const p of sorted(arr)) rows.push(participantRow(p));
+  }
+  for (const [cls, arr] of byClass) {
+    if (seenCls.has(cls)) continue;
+    rows.push(classDivider(cls, arr));
+    for (const p of sorted(arr)) rows.push(participantRow(p));
+  }
+  const label = CATEGORY_LABEL[cat] ?? cat;
+  return makeSection(
+    `cat:${cat}`,
+    el('span', { class: 'section-summary' },
+      el('span', {},
+        el('span', { class: 'mono cat-tag' }, cat),
+        ' ',
+        label,
+        el('span', { class: 'muted' }, ` · ${list.length}`),
+      ),
+      bulkDeleteBtn(`Delete all ${list.length}`, list.map(p => p.id), `${label} (${cat}, all classes)`),
+    ),
+    participantsTable(rows),
+  );
 }
 
 $('#add-participant').addEventListener('submit', async (e) => {
@@ -390,23 +586,25 @@ $('#auto-generate-groups').addEventListener('click', async () => {
       : `Need ${playersPerGroup} eligible participants; have too few.`;
     return alert(detail);
   }
+  const leftover = eligible.length - numGroups * playersPerGroup;
+  const sizesMsg = leftover
+    ? ` (${leftover} group(s) of ${playersPerGroup + 1}, ${numGroups - leftover} of ${playersPerGroup})`
+    : '';
+  const msg = `Create ${numGroups} group(s) of ${playersPerGroup}${sizesMsg}?`;
+  if (!confirm(msg)) return;
 
-  const lines = [];
-  if (noClass) {
-    lines.push('No class selected — groups will be split per participant class (one class per group).');
-    if (skippedNoClass > 0) {
-      lines.push(`(${skippedNoClass} participant(s) without a class were skipped.)`);
-    }
-    lines.push('');
+  // Snake-seed across all eligible players. Spreads top seeds evenly and
+  // distributes any leftover (eligible % playersPerGroup) one per group from
+  // the top — e.g. 14 → 5/5/4 rather than 6/4/4 or leaving 2 unassigned.
+  const ranked = [...eligible].sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
+  const buckets = Array.from({ length: numGroups }, () => []);
+  for (let i = 0; i < ranked.length; i++) {
+    const lap = Math.floor(i / numGroups);
+    const col = i % numGroups;
+    const idx = lap % 2 === 0 ? col : numGroups - 1 - col;
+    buckets[idx].push(ranked[i].id);
   }
-  lines.push(`Create the following ${plans.length} group(s)?`);
-  for (const p of plans) {
-    lines.push(`  • ${p.name} (${p.memberIds.length} player${p.memberIds.length === 1 ? '' : 's'})`);
-  }
-  if (totalLeftover > 0) {
-    lines.push('');
-    lines.push(`${totalLeftover} participant(s) will be left unassigned.`);
-  }
+  
   if (!confirm(lines.join('\n'))) return;
 
   for (const p of plans) {

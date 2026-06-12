@@ -54,6 +54,24 @@ export async function participantRoutes(app: FastifyInstance) {
     );
   });
 
+  // Bulk delete by explicit id list. The UI builds the list from a chosen
+  // filter (category, category+class, all, or all "missing partner" entries).
+  // Doing the filter client-side keeps this endpoint simple and lets the
+  // confirm dialog match exactly what gets removed.
+  const BulkDelete = z.object({ ids: z.array(z.string().min(1)).min(1) });
+  app.post('/api/participants/bulk-delete', async (req) => {
+    const { ids } = BulkDelete.parse(req.body);
+    const set = new Set(ids);
+    return mutate(
+      { action: 'bulk_remove_participants', payload: { count: ids.length } },
+      (s) => {
+        s.participants = s.participants.filter(p => !set.has(p.id));
+        s.groups.forEach(g => { g.members = g.members.filter(m => !set.has(m)); });
+        return s;
+      },
+    );
+  });
+
   app.post('/api/participants/import-csv', async (req) => {
     const { csv } = req.body as { csv?: string };
     if (!csv) throw new Error('csv required');
