@@ -44,6 +44,24 @@ export async function matchRoutes(app: FastifyInstance) {
     );
   });
 
+  app.delete('/api/groups/:gid/matches/:mid', async (req) => {
+    const { gid, mid } = req.params as { gid: string; mid: string };
+    return mutate(
+      { action: 'delete_match', target: mid },
+      (s) => {
+        const g = s.groups.find(g => g.id === gid);
+        if (!g) throw new Error(`group ${gid} not found`);
+        for (const r of g.rounds) {
+          const idx = r.matches.findIndex(m => m.id === mid);
+          if (idx === -1) continue;
+          r.matches.splice(idx, 1);
+          return s;
+        }
+        throw new Error(`match ${mid} not found`);
+      },
+    );
+  });
+
   app.post('/api/groups/:gid/matches', async (req) => {
     const { gid } = req.params as { gid: string };
     const body = NewManualMatch.parse(req.body);

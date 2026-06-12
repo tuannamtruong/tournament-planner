@@ -19,7 +19,7 @@
   <nav id="tabs">
     <a data-tab="participants" class="active">Participants</a>
     <a data-tab="groups">Groups</a>
-    <a data-tab="scoring">Scoring</a>
+    <a data-tab="matches">Matches</a>
     <a data-tab="bracket">Bracket</a>
     <a data-tab="settings">Settings</a>
   </nav>
@@ -109,9 +109,19 @@
       <div id="groupstage-list"></div>
     </section>
 
-    <section data-tab="scoring">
-      <h2>Scoring</h2>
-      <div id="scoring-list"></div>
+    <section data-tab="matches">
+      <h2>Matches</h2>
+      <div class="matches-top">
+        <div class="card">
+          <h3>Overview</h3>
+          <div id="matches-overview"></div>
+        </div>
+        <div class="card">
+          <h3>Live now</h3>
+          <div id="matches-live"></div>
+        </div>
+      </div>
+      <div id="matches-list"></div>
     </section>
 
     <section data-tab="bracket">

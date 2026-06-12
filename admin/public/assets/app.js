@@ -33,7 +33,7 @@ async function refresh() {
   renderParticipants();
   renderGroupsOverview();
   renderGroupstage();
-  renderScoring();
+  renderMatches();
   renderBracket();
   const nameInput = $('#add-group')?.elements.name;
   if (nameInput && document.activeElement !== nameInput) syncDefaultGroupName();
@@ -560,34 +560,152 @@ function renderGroupstage() {
   }));
 }
 
-// -- Scoring ------------------------------------------------------------------
-function renderScoring() {
-  const root = $('#scoring-list');
-  root.replaceChildren(...state.groups.map(g => el('div', { class: 'card' },
-    el('h3', {}, g.name),
-    ...g.rounds.map(r => el('div', {},
-      el('h4', {}, `Round ${r.roundNo}`),
-      ...r.matches.map(m => renderMatchRow(g, m)),
+// -- Matches ------------------------------------------------------------------
+// Preserve which "Pending"/"Done" sections are open across re-renders.
+// Key: `${groupId}:pending` or `${groupId}:done`. Default: pending open, done closed.
+const matchesSectionsClosed = new Set(); // keys explicitly closed by the user
+const matchesSectionsOpen = new Set();   // keys explicitly opened by the user
+
+function isSectionOpen(groupId, kind) {
+  const key = `${groupId}:${kind}`;
+  if (matchesSectionsOpen.has(key)) return true;
+  if (matchesSectionsClosed.has(key)) return false;
+  return kind === 'pending';
+}
+
+function renderMatches() {
+  renderMatchesOverview();
+  renderLiveOverview();
+  const root = $('#matches-list');
+  root.replaceChildren(...state.groups.map(g => {
+    const pendingRounds = [];
+    const doneRounds = [];
+    let pendingCount = 0, doneCount = 0;
+    for (const r of g.rounds) {
+      const pending = r.matches.filter(m => m.status !== 'done');
+      const done = r.matches.filter(m => m.status === 'done');
+      if (pending.length) {
+        pendingRounds.push({ roundNo: r.roundNo, matches: pending });
+        pendingCount += pending.length;
+      }
+      if (done.length) {
+        doneRounds.push({ roundNo: r.roundNo, matches: done });
+        doneCount += done.length;
+      }
+    }
+    return el('div', { class: 'card', id: `matches-group-${g.id}` },
+      el('h3', {}, g.name),
+      renderMatchesSection(g, 'pending', pendingCount, pendingRounds),
+      renderMatchesSection(g, 'done', doneCount, doneRounds),
+    );
+  }));
+}
+
+function renderMatchesOverview() {
+  const root = $('#matches-overview');
+  if (state.groups.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No groups yet.'));
+    return;
+  }
+  root.replaceChildren(el('ul', { class: 'overview-list' },
+    ...state.groups.map(g => {
+      const { done, total } = matchProgress(g);
+      return el('li', {},
+        el('a', { href: `#matches-group-${g.id}`, on: { click: (e) => {
+          e.preventDefault();
+          const card = document.getElementById(`matches-group-${g.id}`);
+          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } } }, g.name),
+        total > 0
+          ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
+          : el('span', { class: 'muted' }, ' · no matches yet'),
+      );
+    }),
+  ));
+}
+
+// "1" < "2" < "10"; non-numeric courts sort lexicographically after numeric;
+// empty/missing court sorts last.
+function courtSortKey(court) {
+  const s = (court ?? '').trim();
+  if (!s) return [2, '', 0];
+  const n = Number(s);
+  if (Number.isFinite(n)) return [0, '', n];
+  return [1, s.toLowerCase(), 0];
+}
+
+function compareCourts(a, b) {
+  const [ka, sa, na] = courtSortKey(a);
+  const [kb, sb, nb] = courtSortKey(b);
+  if (ka !== kb) return ka - kb;
+  if (sa !== sb) return sa < sb ? -1 : 1;
+  return na - nb;
+}
+
+function renderLiveOverview() {
+  const root = $('#matches-live');
+  const live = [];
+  for (const g of state.groups) {
+    for (const r of g.rounds) {
+      for (const m of r.matches) {
+        if (m.status === 'live') live.push({ g, r, m });
+      }
+    }
+  }
+  if (live.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No live matches.'));
+    return;
+  }
+  live.sort((a, b) => compareCourts(a.m.court, b.m.court));
+  root.replaceChildren(el('ul', { class: 'overview-list' },
+    ...live.map(({ g, r, m }) => el('li', {},
+      el('span', { class: 'live-court' }, m.court ? `Court ${m.court}` : 'No court'),
+      el('span', {}, ` · ${nameOf(m.p1)} vs ${nameOf(m.p2)} `),
+      el('a', { class: 'muted', href: `#matches-group-${g.id}`, on: { click: (e) => {
+        e.preventDefault();
+        const card = document.getElementById(`matches-group-${g.id}`);
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } } }, `${g.name} · R${r.roundNo}`),
     )),
-  )));
+  ));
+}
+
+function renderMatchesSection(g, kind, count, rounds) {
+  const key = `${g.id}:${kind}`;
+  const open = isSectionOpen(g.id, kind);
+  const label = kind === 'pending' ? 'Pending' : 'Done';
+  return el('details', {
+    class: 'matches-section',
+    ...(open ? { open: true } : {}),
+    on: { toggle: (e) => {
+      if (e.target.open) { matchesSectionsOpen.add(key); matchesSectionsClosed.delete(key); }
+      else { matchesSectionsClosed.add(key); matchesSectionsOpen.delete(key); }
+    } },
+  },
+    el('summary', {}, `${label} (${count})`),
+    rounds.length === 0
+      ? el('p', { class: 'muted' }, `No ${label.toLowerCase()} matches.`)
+      : el('div', {}, ...rounds.map(r => el('div', {},
+          el('h4', {}, `Round ${r.roundNo}`),
+          ...r.matches.map(m => renderMatchRow(g, m)),
+        ))),
+  );
 }
 
 function renderMatchRow(g, m) {
   if (m.p2 === '__bye__') {
-    return el('div', { class: 'match' },
-      el('span', { class: 'court' }, ''),
-      el('span', {}, nameOf(m.p1)),
-      el('span', {}, '—'),
-      el('span', { class: 'muted' }, 'BYE'),
-      el('span', {}, ''),
-      el('span', { class: 'status' }, 'bye'),
+    return el('div', { class: 'match match-bye' },
+      el('div', { class: 'match-players' },
+        el('span', {}, nameOf(m.p1)),
+        el('span', { class: 'muted' }, '— BYE'),
+      ),
     );
   }
   const sets = m.score.length ? m.score : [[null, null], [null, null], [null, null]];
-  const scoreInputs = el('span', { class: 'row' },
-    ...sets.map(([a, b], idx) => el('span', { class: 'row' },
+  const scoreInputs = el('div', { class: 'match-scores' },
+    ...sets.map(([a, b], idx) => el('span', { class: 'score-pair' },
       el('input', { class: 'score', type: 'number', min: 0, value: a ?? '', 'data-idx': idx, 'data-side': 'a' }),
-      el('span', {}, '-'),
+      el('span', { class: 'muted' }, '-'),
       el('input', { class: 'score', type: 'number', min: 0, value: b ?? '', 'data-idx': idx, 'data-side': 'b' }),
     )),
   );
@@ -607,16 +725,27 @@ function renderMatchRow(g, m) {
     await refresh();
   }
 
+  async function remove() {
+    if (!confirm(`Remove ${nameOf(m.p1)} vs ${nameOf(m.p2)}?`)) return;
+    await del(`/api/groups/${g.id}/matches/${m.id}`);
+    await refresh();
+  }
+
   return el('div', { class: 'match' },
-    el('span', { class: 'court' }, courtInput),
-    el('span', {}, nameOf(m.p1)),
-    el('span', { class: 'muted' }, 'vs'),
-    el('span', {}, nameOf(m.p2)),
-    scoreInputs,
-    el('span', { class: 'row' },
-      el('button', { class: 'ghost', on: { click: () => save('live') } }, '▶'),
-      el('button', { on: { click: () => save('done') } }, '✓'),
-      el('span', { class: 'status ' + m.status }, m.status),
+    el('div', { class: 'match-court' }, courtInput),
+    el('div', { class: 'match-players' },
+      el('span', {}, nameOf(m.p1)),
+      el('span', { class: 'muted' }, 'vs'),
+      el('span', {}, nameOf(m.p2)),
+    ),
+    el('div', { class: 'match-actions' },
+      scoreInputs,
+      el('div', { class: 'match-buttons' },
+        el('button', { class: 'ghost', title: 'Mark live', on: { click: () => save('live') } }, '▶'),
+        el('button', { title: 'Mark done', on: { click: () => save('done') } }, '✓'),
+        el('span', { class: 'status ' + m.status }, m.status),
+        el('button', { class: 'ghost remove-match', title: 'Remove match', on: { click: remove } }, '✕'),
+      ),
     ),
   );
 }
