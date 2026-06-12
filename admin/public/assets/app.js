@@ -837,18 +837,78 @@ function renderH2H(g) {
   );
 }
 
-function renderGroupstageMatches(g) {
-  if (g.rounds.length === 0) return el('p', { class: 'muted' }, 'No rounds yet.');
-  return el('div', {}, ...g.rounds.map(r => el('div', {},
-    el('h4', {}, `Round ${r.roundNo}`),
-    ...r.matches.map(m => el('div', { class: 'row', style: 'gap:0.75rem; padding:0.2rem 0;' },
+const editingGroupstageMatches = new Set();
+
+function renderGroupstageMatchRow(g, m) {
+  const isBye = m.p1 === '__bye__' || m.p2 === '__bye__';
+  const isEditing = editingGroupstageMatches.has(m.id);
+
+  if (isEditing && !isBye) {
+    const sets = m.score.length >= 3
+      ? m.score
+      : [...m.score, ...Array(3 - m.score.length).fill([null, null])];
+    const scoreInputs = el('div', { class: 'match-scores' },
+      ...sets.map(([a, b], idx) => el('span', { class: 'score-pair' },
+        el('input', { class: 'score', type: 'number', min: 0, value: a ?? '', 'data-idx': idx, 'data-side': 'a' }),
+        el('span', { class: 'muted' }, '-'),
+        el('input', { class: 'score', type: 'number', min: 0, value: b ?? '', 'data-idx': idx, 'data-side': 'b' }),
+      )),
+    );
+    attachScoreValidation(scoreInputs);
+
+    async function save() {
+      const score = [];
+      for (let i = 0; i < 3; i++) {
+        const aIn = scoreInputs.querySelector(`input[data-idx="${i}"][data-side="a"]`);
+        const bIn = scoreInputs.querySelector(`input[data-idx="${i}"][data-side="b"]`);
+        const a = aIn.value === '' ? null : Number(aIn.value);
+        const b = bIn.value === '' ? null : Number(bIn.value);
+        if (a == null || b == null) continue;
+        score.push([a, b]);
+      }
+      await patch(`/api/groups/${g.id}/matches/${m.id}`, { score });
+      editingGroupstageMatches.delete(m.id);
+      await refresh();
+    }
+
+    function cancel() {
+      editingGroupstageMatches.delete(m.id);
+      renderGroupstage();
+    }
+
+    return el('div', { class: 'row', style: 'gap:0.75rem; padding:0.2rem 0; align-items:center; flex-wrap:wrap' },
       el('span', { class: 'muted', style: 'min-width:3rem' }, m.court ? `Court ${m.court}` : ''),
       el('span', {}, nameOf(m.p1)),
       el('span', { class: 'muted' }, 'vs'),
       el('span', {}, nameOf(m.p2)),
-      el('span', { class: 'muted' }, m.score.map(([a, b]) => `${a}-${b}`).join(', ')),
-      el('span', { class: 'status ' + m.status, style: 'font-size:0.75rem; text-transform:uppercase;' }, m.status),
-    )),
+      scoreInputs,
+      el('button', { on: { click: save } }, 'Save'),
+      el('button', { class: 'ghost', on: { click: cancel } }, 'Cancel'),
+    );
+  }
+
+  const canEdit = !isBye && m.status === 'done';
+  return el('div', { class: 'row', style: 'gap:0.75rem; padding:0.2rem 0; align-items:center' },
+    el('span', { class: 'muted', style: 'min-width:3rem' }, m.court ? `Court ${m.court}` : ''),
+    el('span', {}, nameOf(m.p1)),
+    el('span', { class: 'muted' }, 'vs'),
+    el('span', {}, nameOf(m.p2)),
+    el('span', { class: 'muted' }, m.score.map(([a, b]) => `${a}-${b}`).join(', ')),
+    el('span', { class: 'status ' + m.status, style: 'font-size:0.75rem; text-transform:uppercase;' }, m.status),
+    canEdit
+      ? el('button', { class: 'ghost', style: 'margin-left:auto; padding:0.1rem 0.5rem', on: { click: () => {
+          editingGroupstageMatches.add(m.id);
+          renderGroupstage();
+        } } }, 'Edit')
+      : null,
+  );
+}
+
+function renderGroupstageMatches(g) {
+  if (g.rounds.length === 0) return el('p', { class: 'muted' }, 'No rounds yet.');
+  return el('div', {}, ...g.rounds.map(r => el('div', {},
+    el('h4', {}, `Round ${r.roundNo}`),
+    ...r.matches.map(m => renderGroupstageMatchRow(g, m)),
   )));
 }
 
