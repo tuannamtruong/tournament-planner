@@ -7,7 +7,7 @@
    ├─ admin/data/tournament.json   ← single source of truth
    ├─ pairing engine (round_robin / swiss / manual)
    ├─ standings engine (tiebreaker authority)
-   └─ AWS SDK ──► S3 PUT when operator clicks "Force publish"
+   └─ AWS SDK ──► S3 PUT when operator clicks "Publish"
                               │
                               ▼
                   ┌──────────────────────────────────────────────┐

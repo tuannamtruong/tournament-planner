@@ -61,7 +61,7 @@ For local dev without AWS, leave `TP_BUCKET` unset — the admin app runs fully,
 
 ### Operator workflow — how to push changes to AWS
 
-The mental model: the admin app accumulates a `pendingChanges` counter as the operator edits. When the operator wants spectators to see the new state, they click **Force publish** in the header. Pushing is explicit, not automatic.
+The mental model: the admin app accumulates a `pendingChanges` counter as the operator edits. When the operator wants spectators to see the new state, they click **Publish** in the header. Pushing is explicit, not automatic.
 
 **One-time, before the event:**
 
@@ -82,12 +82,12 @@ pnpm dev                                    # admin app on http://localhost:3732
 ```
 
 Header status light:
-- 🟢 `Synced N seconds ago` — last Force-publish succeeded
-- 🟡 `N change(s) pending` — edits since last push; click **Force publish** to flush
+- 🟢 `Synced N seconds ago` — last Publish succeeded
+- 🟡 `N change(s) pending` — edits since last push; click **Publish** to flush
 - 🟡 `Pushing…` — in-flight `POST /api/publish/force`
 - 🟡 `AWS not configured (local only)` — `TP_BUCKET` not set
-- 🔴 `Push failed — <reason>` — `status.lastError` from the last attempt; click **Force publish** again to retry (no automatic retry)
-- **Force publish** button next to it.
+- 🔴 `Push failed — <reason>` — `status.lastError` from the last attempt; click **Publish** again to retry (no automatic retry)
+- **Publish** button next to it.
 
 **What happens on each edit:**
 
@@ -104,7 +104,7 @@ storage.mutate(): validate → write tmp file → rename → cache
 Fastify onResponse hook → publish.schedulePublish()
         │  (just bumps status.pendingChanges; no push scheduled)
         ▼
-operator clicks "Force publish" → POST /api/publish/force
+operator clicks "Publish" → POST /api/publish/force
         │
         ▼
 publish.runPublish():
@@ -116,7 +116,7 @@ publish.runPublish():
         └─ failure → status.lastError; throws 502 (no auto-retry)
 ```
 
-**When Wi-Fi drops:** edits keep working (local JSON), `pendingChanges` increments, the light shows pending. When connectivity returns, the operator clicks **Force publish**; each push is a full snapshot of the current views, so no per-edit queue is needed.
+**When Wi-Fi drops:** edits keep working (local JSON), `pendingChanges` increments, the light shows pending. When connectivity returns, the operator clicks **Publish**; each push is a full snapshot of the current views, so no per-edit queue is needed.
 
 **Backup pushes (separate path):** the Settings tab has a manual **Push backup snapshot** button that PUTs a full `tournament.json` to `s3://$BUCKET/private/backups/tournament-<ts>.json` via `publish.pushBackup()`. The bucket policy denies public read on `private/*`. Locally, `storage.startLocalSnapshots()` writes a snapshot to `admin/data/backups/` every 5 minutes and keeps the last 50 — that's the disk-side safety net.
 

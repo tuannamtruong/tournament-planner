@@ -45,7 +45,7 @@ app.get('/view/data/:file', async (req, reply) => {
 
 // Mark state as dirty after every successful state-changing API call so the UI
 // can show the pending-changes count. The actual push to S3 is manual — the
-// operator clicks "Force publish" when they want to publish.
+// operator clicks "Publish" when they want to publish.
 app.addHook('onResponse', async (req, reply) => {
   if (reply.statusCode >= 400) return;
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;

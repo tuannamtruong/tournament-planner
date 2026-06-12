@@ -34,7 +34,7 @@ export function getStatus(): PublishStatus {
 
 /**
  * Mark state as dirty. The actual push is manual — the operator clicks
- * "Force publish" (or "Push backup snapshot") when ready. We still count
+ * "Publish" (or "Push backup snapshot") when ready. We still count
  * pending changes so the UI can show how many edits are unpushed.
  */
 export function schedulePublish(): void {
@@ -42,7 +42,7 @@ export function schedulePublish(): void {
 }
 
 /**
- * Push immediately (the "Force publish" button). Returns when the push
+ * Push immediately (the "Publish" button). Returns when the push
  * attempt finishes (success or thrown error). No automatic retries.
  */
 export async function forcePush(): Promise<void> {

@@ -84,7 +84,7 @@ $('#force-publish').addEventListener('click', async () => {
     await post('/api/publish/force');
     await refreshPublishStatus();
   } catch (err) {
-    alert('Force publish failed: ' + err.message);
+    alert('Publish failed: ' + err.message);
   }
 });
 

@@ -173,7 +173,7 @@ admin/src/storage.ts          load/mutate/save. ALL writes go through mutate(): 
 admin/src/schema.ts           zod schemas for the entire JSON shape.
 admin/src/standings.ts        tiebreaker authority. Runs at publish time. Do NOT reimplement
                               in result-site JS — that JS just renders what groups.json contains.
-admin/src/publish.ts          deriveViews() + manual S3 PUT (Force publish) + backup snapshot.
+admin/src/publish.ts          deriveViews() + manual S3 PUT (Publish) + backup snapshot.
                               schedulePublish() only bumps pendingChanges; the push is operator-
                               triggered, not debounced/automatic.
 admin/src/pairing/            { round_robin | swiss | manual } strategy dispatch (+ tests).
@@ -200,7 +200,7 @@ Key invariants — break these and the project's design breaks:
   and does atomic temp+rename. Bypassing it corrupts the file on a crash.
 - **The Fastify `onResponse` hook bumps `pendingChanges`** for 2xx mutations on
   `/api/*` (excluding `/api/publish/*`). The actual S3 push is operator-
-  triggered via the "Force publish" button — don't push synchronously inside an
+  triggered via the "Publish" button — don't push synchronously inside an
   HTTP handler.
 - **Group membership is exclusive.** A participant belongs to at most one group
   at a time; the member-picker UI hides anyone already in another group. Flag
