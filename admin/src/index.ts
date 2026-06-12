@@ -21,7 +21,7 @@ const app = Fastify({
 });
 
 await app.register(fastifyStatic, { root: ADMIN_DIR, prefix: '/' });
-await app.register(fastifyStatic, { root: RESULT_DIR, prefix: '/view/', decorateReply: false });
+await app.register(fastifyStatic, { root: RESULT_DIR, prefix: '/view', redirect: true, decorateReply: false });
 
 // Live preview of the result site: same HTML/JS that gets uploaded to S3,
 // served same-origin from this Fastify so the relative `data/*.json` fetches
