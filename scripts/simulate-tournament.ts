@@ -1,6 +1,7 @@
 // Simulate a full tournament: partition participants by (category, class) into
 // round-robin groups of 4 (leftovers randomly added), generate all matches with
-// realistic scores, then build & play a knockout from the top performers.
+// realistic scores, then build & play a knockout for every (category, class)
+// combination so each one crowns a champion.
 //
 // Run with:  npx tsx scripts/simulate-tournament.ts
 
@@ -8,7 +9,7 @@ import { mutate } from '../admin/src/storage.ts';
 import { nanoid } from 'nanoid';
 import { roundRobin } from '../admin/src/pairing/round_robin.ts';
 import { computeStandings } from '../admin/src/standings.ts';
-import type { Group, Match, Round, Knockout, BracketRound, BracketSlot, Participant } from '../admin/src/schema.ts';
+import type { Group, Match, Round, Bracket, BracketRound, BracketSlot, Participant } from '../admin/src/schema.ts';
 
 // Deterministic PRNG (mulberry32) so re-runs produce identical results.
 function rng(seed: number): () => number {
@@ -127,7 +128,7 @@ function seedOrder(size: number): number[] {
   return arr;
 }
 
-function emptyBracket(size: number): Knockout {
+function emptyBracket(meta: { id: string; name: string; category: string; classes: string[] }, size: number): Bracket {
   const rounds: BracketRound[] = [];
   let slots = size / 2;
   let roundNo = 1;
@@ -139,28 +140,48 @@ function emptyBracket(size: number): Knockout {
         p1: null,
         p2: null,
         matchId: nanoid(10),
+        court: '',
         score: [],
+        status: 'pending',
         winner: null,
+        startedAt: null,
+        finishedAt: null,
       })),
     });
     if (slots === 1) break;
     slots /= 2;
     roundNo++;
   }
-  return { size, rounds };
+  return { ...meta, size, rounds };
 }
 
-function simulateBracket(kb: Knockout, rand: () => number): void {
+function simulateBracket(kb: Bracket, rand: () => number, baseTime: number): void {
+  let t = baseTime;
   for (let r = 0; r < kb.rounds.length; r++) {
     const round = kb.rounds[r];
     for (const slot of round.slots) {
       // Walkover handling: if exactly one side is filled, that player advances.
-      if (slot.p1 && !slot.p2) { slot.winner = slot.p1; }
-      else if (slot.p2 && !slot.p1) { slot.winner = slot.p2; }
-      else if (slot.p1 && slot.p2) {
+      if (slot.p1 && !slot.p2) {
+        slot.winner = slot.p1;
+        slot.status = 'done';
+        slot.startedAt = new Date(t).toISOString();
+        slot.finishedAt = new Date(t + 60_000).toISOString();
+        t += 60_000;
+      } else if (slot.p2 && !slot.p1) {
+        slot.winner = slot.p2;
+        slot.status = 'done';
+        slot.startedAt = new Date(t).toISOString();
+        slot.finishedAt = new Date(t + 60_000).toISOString();
+        t += 60_000;
+      } else if (slot.p1 && slot.p2) {
         const sim = simulateMatch(rand);
         slot.score = sim.score;
         slot.winner = sim.p1Won ? slot.p1 : slot.p2;
+        slot.status = 'done';
+        slot.startedAt = new Date(t).toISOString();
+        slot.finishedAt = new Date(t + 25 * 60_000).toISOString();
+        slot.court = 'C' + (1 + Math.floor(rand() * 8));
+        t += 30 * 60_000;
       } else {
         continue;
       }
@@ -183,9 +204,9 @@ const rand = rng(SEED);
 const next = await mutate(
   { action: 'simulate_full_tournament', payload: { seed: SEED } },
   (s) => {
-    // Wipe any existing groups & knockout to make this rerunnable.
+    // Wipe any existing groups & brackets to make this rerunnable.
     s.groups = [];
-    s.knockout = null;
+    s.knockouts = [];
 
     // Bucket participants by (category, class). Skip withdrawn and any with
     // missing category/class so we don't form mixed-discipline groups.
@@ -220,46 +241,62 @@ const next = await mutate(
       });
     }
 
-    // Knockout: feature Men's Singles A-class. Take group winners (+ best
-    // runners-up to fill to a power of two).
-    const featuredCategory = 'MS';
-    const featuredClass = 'A';
-    const featuredGroups = s.groups.filter(
-      g => g.category === featuredCategory && g.classes.includes(featuredClass),
-    );
-    const winners: { id: string; rank: number; groupIdx: number }[] = [];
-    const runnersUp: { id: string; rank: number; groupIdx: number }[] = [];
-    featuredGroups.forEach((g, idx) => {
-      const standings = computeStandings(g, s.participants);
-      if (standings[0]) winners.push({ id: standings[0].participantId, rank: 1, groupIdx: idx });
-      if (standings[1]) runnersUp.push({ id: standings[1].participantId, rank: 2, groupIdx: idx });
-    });
-    const qualified = winners.length;
-    let size = 2;
-    while (size < qualified) size *= 2;
-    size = Math.max(size, 4);
-    // Pad with best runners-up (in standings order — first ones added).
-    const seeds: string[] = [];
-    for (const w of winners) seeds.push(w.id);
-    for (const r of runnersUp) {
-      if (seeds.length >= size) break;
-      seeds.push(r.id);
-    }
-    while (seeds.length < size) seeds.push(''); // filler -> empty slot
+    // One knockout per (category, class). Seed from group winners + best
+    // runners-up; pad up to a power of two with BYEs so every draw plays out
+    // to a single champion.
+    const bracketBaseTime = Date.parse('2026-06-14T08:00:00Z');
+    for (const key of sortedKeys) {
+      const [category, cls] = key.split('-');
+      const groupsForKey = s.groups.filter(
+        g => g.category === category && g.classes.includes(cls),
+      );
+      if (groupsForKey.length === 0) continue;
 
-    const kb = emptyBracket(size);
-    const order = seedOrder(size);
-    const firstRound = kb.rounds[0];
-    for (let i = 0; i < order.length; i++) {
-      const seedNo = order[i];
-      const id = seeds[seedNo - 1] || null;
-      const slotIdx = Math.floor(i / 2);
-      const slot = firstRound.slots[slotIdx];
-      if (i % 2 === 0) slot.p1 = id;
-      else slot.p2 = id;
+      const winners: string[] = [];
+      const runnersUp: string[] = [];
+      for (const g of groupsForKey) {
+        const standings = computeStandings(g, s.participants);
+        if (standings[0]) winners.push(standings[0].participantId);
+        if (standings[1]) runnersUp.push(standings[1].participantId);
+      }
+      const qualified = winners.length + runnersUp.length;
+      if (qualified < 2) continue; // can't form a 2-slot draw
+
+      let size = 2;
+      while (size < winners.length) size *= 2;
+      // Try to grow to fit the runners-up too, capped at the available field.
+      while (size < qualified && size < 32) size *= 2;
+      size = Math.max(size, 2);
+
+      const seeds: string[] = [...winners];
+      for (const r of runnersUp) {
+        if (seeds.length >= size) break;
+        seeds.push(r);
+      }
+      while (seeds.length < size) seeds.push(''); // BYE
+
+      const kb = emptyBracket(
+        {
+          id: 'kb-' + nanoid(8),
+          name: `${category}-${cls} KO`,
+          category,
+          classes: [cls],
+        },
+        size,
+      );
+      const order = seedOrder(size);
+      const firstRound = kb.rounds[0];
+      for (let i = 0; i < order.length; i++) {
+        const seedNo = order[i];
+        const id = seeds[seedNo - 1] || null;
+        const slotIdx = Math.floor(i / 2);
+        const slot = firstRound.slots[slotIdx];
+        if (i % 2 === 0) slot.p1 = id;
+        else slot.p2 = id;
+      }
+      simulateBracket(kb, rand, bracketBaseTime);
+      s.knockouts.push(kb);
     }
-    simulateBracket(kb, rand);
-    s.knockout = kb;
 
     return s;
   },
@@ -286,14 +323,14 @@ const donePct = (() => {
   return all === 0 ? 0 : Math.round((done / all) * 100);
 })();
 console.log(`group matches: ${totalMatches} (${donePct}% done)`);
-if (next.knockout) {
-  console.log(`knockout: size ${next.knockout.size}, ${next.knockout.rounds.length} rounds`);
-  const final = next.knockout.rounds.at(-1);
+console.log(`knockouts: ${next.knockouts.length}`);
+for (const kb of next.knockouts) {
+  const final = kb.rounds.at(-1);
   const champion = final?.slots[0]?.winner;
-  if (champion) {
-    const p = next.participants.find(p => p.id === champion);
-    console.log(`champion (${next.knockout.size}-draw MS-A): ${p?.name ?? champion}`);
-  }
+  const champName = champion
+    ? (next.participants.find(p => p.id === champion)?.name ?? champion)
+    : '(none)';
+  console.log(`  ${kb.name} (size ${kb.size}, ${kb.rounds.length} rounds): champion = ${champName}`);
 }
 const groupsByCat = new Map<string, number>();
 for (const g of next.groups) {
