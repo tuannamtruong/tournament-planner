@@ -1,8 +1,10 @@
 node_modules/
 admin/data/
 .env*
+!.env.example
 *.log
 .DS_Store
 dist/
 coverage/
+.pack-cache/
 debug/screenshots/
