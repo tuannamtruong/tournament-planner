@@ -22,7 +22,7 @@ There is no backend in AWS. The admin app derives view JSONs and PUTs them to S3
 
 ## Principals
 
-Four roles interact with the system. They may collapse onto the same person at a small event, but the credentials they hold are distinct.
+Four roles interact with the system. They may collapse onto the same person at a small event, but the responsiblities are distinct.
 
 | Role | What they do | AWS credentials |
 |---|---|---|
