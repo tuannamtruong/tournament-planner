@@ -42,13 +42,22 @@ async function refresh() {
 }
 
 // -- Tabs ---------------------------------------------------------------------
+const TAB_STORAGE_KEY = 'tp.activeTab';
 $$('nav#tabs a').forEach(a => {
   a.addEventListener('click', () => {
     const name = a.dataset.tab;
+    try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch {}
     $$('nav#tabs a').forEach(x => x.classList.toggle('active', x === a));
     $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === name));
   });
 });
+try {
+  const saved = localStorage.getItem(TAB_STORAGE_KEY);
+  if (saved && $$(`nav#tabs a[data-tab="${saved}"]`).length) {
+    $$('nav#tabs a').forEach(x => x.classList.toggle('active', x.dataset.tab === saved));
+    $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === saved));
+  }
+} catch {}
 
 // -- Publish status -----------------------------------------------------------
 async function refreshPublishStatus() {
@@ -1959,6 +1968,7 @@ function renderBracketSlot(kb, roundNo, slot) {
 }
 
 function activateTab(name) {
+  try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch {}
   $$('nav#tabs a').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
   $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === name));
 }
