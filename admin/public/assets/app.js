@@ -383,7 +383,7 @@ function isOverviewOpen(key, defaultOpen) {
   return overviewOpen.has(key) ? overviewOpen.get(key) : defaultOpen;
 }
 
-function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem }) {
+function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem, flatClasses = false }) {
   if (items.length === 0) {
     rootEl.replaceChildren(el('p', { class: 'muted' }, 'Nothing here yet.'));
     return;
@@ -410,23 +410,27 @@ function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem 
     const catKey = `${prefix}:cat:${cat}`;
     const clsMap = byCat.get(cat);
     const total = [...clsMap.values()].reduce((s, a) => s + a.length, 0);
+    const classKeys = orderByPreset(clsMap, CLASS_ORDER);
 
-    const classNodes = orderByPreset(clsMap, CLASS_ORDER).map(cls => {
-      const clsKey = `${prefix}:cls:${cat}:${cls}`;
-      const list = clsMap.get(cls);
-      return el('details', {
-        class: 'overview-class',
-        'data-overview-key': clsKey,
-        ...(isOverviewOpen(clsKey, false) ? { open: true } : {}),
-        on: { toggle: (e) => overviewOpen.set(clsKey, e.target.open) },
-      },
-        el('summary', {},
-          el('span', {}, `Class ${cls || '·'}`),
-          el('span', { class: 'muted' }, ` · ${list.length}`),
-        ),
-        el('ul', { class: 'overview-list' }, ...list.map(renderItem)),
-      );
-    });
+    const childNodes = flatClasses
+      ? [el('ul', { class: 'overview-list' },
+          ...classKeys.flatMap(cls => clsMap.get(cls).map(renderItem)))]
+      : classKeys.map(cls => {
+          const clsKey = `${prefix}:cls:${cat}:${cls}`;
+          const list = clsMap.get(cls);
+          return el('details', {
+            class: 'overview-class',
+            'data-overview-key': clsKey,
+            ...(isOverviewOpen(clsKey, false) ? { open: true } : {}),
+            on: { toggle: (e) => overviewOpen.set(clsKey, e.target.open) },
+          },
+            el('summary', {},
+              el('span', {}, `Class ${cls || '·'}`),
+              el('span', { class: 'muted' }, ` · ${list.length}`),
+            ),
+            el('ul', { class: 'overview-list' }, ...list.map(renderItem)),
+          );
+        });
 
     const label = CATEGORY_LABEL[cat] ?? (cat || '(no category)');
     return el('details', {
@@ -440,7 +444,7 @@ function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem 
         el('span', {}, label),
         el('span', { class: 'muted' }, ` · ${total}`),
       ),
-      ...classNodes,
+      ...childNodes,
     );
   };
 
@@ -1910,6 +1914,7 @@ function renderBracketOverview() {
     getCat: kb => kb.category || '',
     getCls: kb => (kb.classes || []).join('/'),
     prefix: 'b',
+    flatClasses: true,
     renderItem: (kb) => {
       const { done, total } = bracketProgress(kb);
       const anchor = `bracket-${kb.id}`;

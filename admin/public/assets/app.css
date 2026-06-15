@@ -272,6 +272,7 @@ details.overview-class > summary::before {
 }
 details.overview-class[open] > summary::before { transform: rotate(90deg); }
 details.overview-class .overview-list { margin-left: 1.5rem; }
+details.overview-cat > .overview-list { margin-left: 1.5rem; }
 
 .live-court { font-weight: 600; font-variant-numeric: tabular-nums; }
 
