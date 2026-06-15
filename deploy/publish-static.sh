@@ -12,7 +12,7 @@ if [ -f .env ]; then
 fi
 
 : "${TP_BUCKET:?TP_BUCKET not set — deploy the CFN stack first (make cfn-deploy) and put the bucket name in .env}"
-: "${AWS_PROFILE:=tp}"
+: "${AWS_PROFILE:=tp-dev}"
 export AWS_PROFILE
 
 echo "→ syncing result-site/ to s3://$TP_BUCKET/  (profile: $AWS_PROFILE)"

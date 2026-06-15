@@ -71,7 +71,7 @@ The infra (bucket + publisher IAM user + inline publish policy) lives in one Clo
    pnpm publish-static            # wraps deploy/publish-static.sh
    ```
 
-   This sync uses your Dev credentials (account-admin), not the publisher key — the publisher's inline policy is intentionally scoped to `data/*` only.
+   This sync uses your Dev credentials (account-admin) under the `tp-dev` AWS profile in `~/.aws/credentials`, not the publisher key — the publisher's inline policy is intentionally scoped to `data/*` only. Override the profile name with `AWS_PROFILE=<name>` if you've configured it differently.
 
 ### Operator workflow — how to push changes to AWS
 
