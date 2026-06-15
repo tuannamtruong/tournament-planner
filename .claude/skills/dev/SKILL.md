@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Build, run, smoke-test, and develop the tournament-planner Fastify admin app + S3-bound result site. Use when asked to start the admin, run vitest, drive the API, or exercise pairing/standings/publish. No headless browser is available, so visual/screenshot checks of the UI are out of scope from the agent path.
+description: Build, run, smoke-test, and develop the tournament-planner Fastify admin app + S3-bound result site. Use when asked to start the admin, run vitest, drive the API, or exercise pairing/standings/publish. Playwright (Chromium) is installed locally — visual/screenshot checks of the admin UI and result viewer are in scope; see "Screenshot UI" below.
 allowed-tools: Bash(curl:*), Bash(ping:*), Bash(node:*), Bash(lsof:*)
 ---
 
@@ -28,16 +28,18 @@ node --version   # v18.x or newer
 No `apt-get` packages were needed — the project is pure JS/TS. `lsof` is used
 by `driver.mjs` for cleanup and is preinstalled on Ubuntu.
 
-**No headless browser available.** This container has no `chromium-cli`,
-`chromium`, `chromium-browser`, `google-chrome`, or `playwright` — neither
-on `PATH` nor in `node_modules/`. You cannot screenshot the admin UI or
-result viewer from the agent path. All UI verification has to go through the
-HTTP API (`driver.mjs` already does this for the data flows); for actual
-visual checks, hand off to the operator running `npm run dev` on their
-laptop. Don't try to `apt-get install chromium` or `npm i -D playwright` to
-work around this — both pull hundreds of MB and `playwright install` then
-needs network for the browser binaries; treat the absence as a hard
-constraint of the agent environment.
+**Headless browser:** Playwright is a devDependency and its Chromium binary
+lives under `~/.cache/ms-playwright/`. Use it via `scripts/screenshot-views.mjs`
+(see "Screenshot UI" below) — it boots an isolated server on a random port,
+seeds enough data to exercise the renderer, screenshots `/view/index.html` and
+`/view/knockout.html`, and writes PNGs to `debug/screenshots/`. Fastest way to
+catch a regression in the group-stage tree or the knockout bracket layout
+without an operator in the loop.
+
+Limit: Playwright's Chromium needs a few apt libs that come from Ubuntu's
+defaults; if `chromium.launch()` throws about a missing `.so`, run
+`sudo npx playwright install-deps chromium` once. The driver does NOT do this
+itself — it'd prompt for sudo and break the no-interaction agent path.
 
 ## Setup
 
