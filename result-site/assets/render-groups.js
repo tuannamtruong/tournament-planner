@@ -28,6 +28,41 @@ function matchCounts(g) {
   return { total, done };
 }
 
+const CATEGORIES = ['MS', 'WS', 'MD', 'WD', 'MX'];
+const CLASSES = ['S', 'A', 'B', 'C', 'D'];
+
+export function buildCategoryTree(items, classesOf) {
+  const tree = new Map();
+  for (const cat of CATEGORIES) tree.set(cat, new Map());
+  const otherCats = new Set();
+  for (const item of items) {
+    const cat = item.category || '';
+    if (!tree.has(cat)) {
+      tree.set(cat, new Map());
+      if (cat) otherCats.add(cat);
+    }
+    const classBuckets = tree.get(cat);
+    const classes = classesOf(item);
+    const keys = classes.length ? classes : [''];
+    for (const cls of keys) {
+      if (!classBuckets.has(cls)) classBuckets.set(cls, []);
+      classBuckets.get(cls).push(item);
+    }
+  }
+  const order = [...CATEGORIES, ...[...otherCats].sort()];
+  return order.map(cat => {
+    const buckets = tree.get(cat) || new Map();
+    const classOrder = [
+      ...CLASSES.filter(c => buckets.has(c)),
+      ...[...buckets.keys()].filter(c => !CLASSES.includes(c)).sort(),
+    ];
+    return {
+      category: cat,
+      classes: classOrder.map(cls => ({ class: cls, items: buckets.get(cls) })),
+    };
+  });
+}
+
 export function renderGroups(root, groups) {
   root.replaceChildren();
   if (groups.length === 0) {
@@ -36,25 +71,40 @@ export function renderGroups(root, groups) {
   }
 
   const toggleBtn = el('button', { type: 'button', class: 'toggle-all' }, 'Open all');
-  const overviewList = el('ul', { class: 'overview-list' });
-  for (const g of groups) {
-    const { total, done } = matchCounts(g);
-    const memberCount = (g.members && g.members.length)
-      || (g.standings && g.standings.length) || 0;
-    overviewList.append(el('li', {},
-      el('a', { href: `#group-${g.id}` },
-        el('span', { class: 'overview-name' }, g.name),
-        el('span', { class: 'overview-meta muted' },
-          `${g.mode.replace('_', ' ')} · ${memberCount} players · ${done}/${total} matches`),
-      ),
-    ));
+  const tree = buildCategoryTree(groups, g => g.classes || []);
+  const treeEl = el('div', { class: 'category-tree' });
+  for (const col of tree) {
+    const colEl = el('div', { class: 'category-col' },
+      el('h3', { class: 'category-head' }, col.category || '—'),
+    );
+    if (col.classes.length === 0) {
+      colEl.append(el('p', { class: 'muted empty' }, '—'));
+    } else {
+      for (const block of col.classes) {
+        const blockEl = el('div', { class: 'class-block' });
+        if (block.class) blockEl.append(el('h4', { class: 'class-head' }, block.class));
+        const list = el('ul', { class: 'class-list' });
+        for (const g of block.items) {
+          const { total, done } = matchCounts(g);
+          list.append(el('li', {},
+            el('a', { href: `#group-${g.id}` },
+              el('span', { class: 'item-name' }, g.name),
+              el('span', { class: 'item-meta muted' }, `${done}/${total}`),
+            ),
+          ));
+        }
+        blockEl.append(list);
+        colEl.append(blockEl);
+      }
+    }
+    treeEl.append(colEl);
   }
   root.append(el('section', { class: 'overview' },
     el('div', { class: 'overview-header' },
       el('h2', {}, 'Groups'),
       toggleBtn,
     ),
-    overviewList,
+    treeEl,
   ));
 
   function updateToggleLabel() {
@@ -124,7 +174,7 @@ export function renderGroups(root, groups) {
     updateToggleLabel();
   });
 
-  overviewList.addEventListener('click', (e) => {
+  treeEl.addEventListener('click', (e) => {
     const link = e.target.closest('a[href^="#group-"]');
     if (!link) return;
     e.preventDefault();
