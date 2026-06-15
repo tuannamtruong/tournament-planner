@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Tournament Planner result-site infrastructure: a public S3 website bucket
+  and an IAM user with an inline publish policy. The access key for the user
+  is created manually in the AWS console after the stack is deployed, so the
+  key never touches CloudFormation state.
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: ssvettlingen-tournament-100731996173-eu-central-1-an
+    Description: Globally-unique name for the result-site bucket (e.g. tp-result-myevent).
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+
+  PublisherUserName:
+    Type: String
+    Default: tp-publisher
+    Description: >
+      Name of the IAM user this stack will create. An inline publish policy is
+      attached to it; the access key is created out-of-band in the console.
+
+Resources:
+  ResultBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Ref BucketName
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        IgnorePublicAcls: false
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  ResultBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ResultBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadTopLevelAndData
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource:
+              - !Sub "arn:aws:s3:::${ResultBucket}/index.html"
+              - !Sub "arn:aws:s3:::${ResultBucket}/knockout.html"
+              - !Sub "arn:aws:s3:::${ResultBucket}/assets/*"
+              - !Sub "arn:aws:s3:::${ResultBucket}/data/*"
+
+  PublisherUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref PublisherUserName
+
+  PublisherInlinePolicy:
+    Type: AWS::IAM::UserPolicy
+    Properties:
+      UserName: !Ref PublisherUser
+      PolicyName: tp-publish
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Publisher only writes the derived view JSONs under data/.
+          # Static site files (index.html, knockout.html, assets/*) are
+          # uploaded by Dev under account-admin creds via publish-static,
+          # not by this key — so no permission on them is granted here.
+          - Sid: PublishViews
+            Effect: Allow
+            Action: s3:PutObject
+            Resource: !Sub "arn:aws:s3:::${ResultBucket}/data/*"
+
+Outputs:
+  BucketName:
+    Description: Result-site bucket name (set as TP_BUCKET in .env).
+    Value: !Ref ResultBucket
+
+  WebsiteURL:
+    Description: Public result-site URL (HTTP only).
+    Value: !GetAtt ResultBucket.WebsiteURL
+
+  PublisherUserName:
+    Description: IAM user created by the stack with the inline publish policy attached.
+    Value: !Ref PublisherUser

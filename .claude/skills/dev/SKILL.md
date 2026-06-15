@@ -185,8 +185,9 @@ admin/public/                 admin UI (plain HTML + vanilla JS, no build). inde
 admin/data/tournament.json    single source of truth (gitignored). Created on first run.
 result-site/                  static files for S3 (index.html + knockout.html + assets/ + data/).
                               Mounted by Fastify at /view/ for local preview with live data.
-deploy/                       bootstrap-aws.sh + publish-static.sh + tear-down.sh +
-                              iam-policy.json + s3-bucket-policy.json. Only used for real S3
+deploy/                       cloudformation.yaml (bucket + tp-publisher IAM user + inline
+                              publish policy) + publish-static.sh (sync result-site/ to S3) +
+                              pack-portable.sh (Windows bundle). Only used for real S3
                               provisioning; not exercised by driver.mjs.
 scripts/                      one-off TS helpers (import-ettlingen, migrate-split-category).
                               Run with `node_modules/.bin/tsx scripts/<name>.ts`.
@@ -230,8 +231,8 @@ goes beyond running the app:
   + S3-only + offline-tolerant).
 - **`docs/Dev-deploy-test.md`** — the human `pnpm dev` / `/view/` preview
   loop (the skill already covers this) plus the AWS bring-up flow
-  (`deploy/bootstrap-aws.sh`, `deploy/publish-static.sh`). Read before
-  touching anything under `deploy/`.
+  (`deploy/cloudformation.yaml` via `make cfn-deploy`, then
+  `deploy/publish-static.sh`). Read before touching anything under `deploy/`.
 
 ## Gotchas
 
@@ -251,9 +252,10 @@ goes beyond running the app:
 - **`schedulePublish()` runs even with `TP_BUCKET=''`** — it just increments
   `pendingChanges`; there is no automatic PUT. The publish-status object in the
   smoke output (`pendingChanges: 10`) reflects this, not a bug.
-- **Adding a new public file at a new S3 prefix** means updating
-  `deploy/s3-bucket-policy.json` — the policy whitelists exact paths, so a
-  new prefix 403s without an explicit allow.
+- **Adding a new public file at a new S3 prefix** means updating the
+  `ResultBucketPolicy` block in `deploy/cloudformation.yaml` and redeploying
+  the stack — the policy whitelists exact paths, so a new prefix 403s without
+  an explicit allow.
 
 ## Troubleshooting
 

@@ -30,34 +30,38 @@ For local dev without AWS, leave `TP_BUCKET` unset — the admin app runs fully,
 
 ### One-time provisioning (per event)
 
-1. **Create the bucket and enable website hosting.**
+The infra (bucket + publisher IAM user + inline publish policy) lives in one CloudFormation stack: `deploy/cloudformation.yaml`. The access key for the publisher user is created out-of-band in the console so it never touches CloudFormation state.
+
+1. **Deploy the stack.** Creates the bucket (website hosting + public-read on `index.html`, `knockout.html`, `assets/*`, `data/*`) and the `tp-publisher` IAM user with an inline `s3:PutObject` policy scoped to `data/*`.
 
    ```bash
-   REGION=eu-central-1
-   BUCKET=tp-result-$(openssl rand -hex 4)
-
-   aws s3 mb s3://$BUCKET --region $REGION
-   aws s3api put-public-access-block --bucket $BUCKET \
-     --public-access-block-configuration \
-     "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
-   aws s3api put-bucket-policy --bucket $BUCKET \
-     --policy file://deploy/s3-bucket-policy.json
-   aws s3 website s3://$BUCKET/ \
-     --index-document index.html --error-document index.html
+   aws cloudformation deploy \
+     --template-file deploy/cloudformation.yaml \
+     --stack-name tp-result \
+     --capabilities CAPABILITY_NAMED_IAM \
+     --parameter-overrides BucketName=tp-result-myevent PublisherUserName=tp-publisher
    ```
 
-   Result-site URL: `http://$BUCKET.s3-website.$REGION.amazonaws.com`.
+   Or `make cfn-deploy`. Stack outputs `BucketName` and `WebsiteURL` — copy them.
 
-2. **Create the IAM publisher user** named `tp-publisher-<bucket>`. Inline policy: `s3:PutObject` + `s3:DeleteObject` + `s3:ListBucket` on this bucket only. Generate an access key.
+   Result-site URL: `http://<bucket>.s3-website.<region>.amazonaws.com`.
 
-3. **Upload the static result site:**
+2. **Create the publisher access key in the console.** IAM → Users → `tp-publisher` → Security credentials → Create access key. Save the secret (shown once). Paste into `.env`:
+
+   ```
+   TP_BUCKET=tp-result-myevent
+   TP_REGION=eu-central-1
+   AWS_ACCESS_KEY_ID=AKIA...
+   AWS_SECRET_ACCESS_KEY=...
+   ```
+
+3. **Upload the static result site** (HTML/CSS/JS — the admin app handles `data/*` itself):
 
    ```bash
-   AWS_PROFILE=tp aws s3 sync result-site/ s3://$BUCKET/ \
-     --cache-control "public, max-age=3600"
+   pnpm publish-static            # wraps deploy/publish-static.sh
    ```
 
-`deploy/bootstrap-aws.sh` automates steps 1–2 idempotently and prints the access key + env-var block to copy. `deploy/publish-static.sh` wraps step 3.
+   This sync uses your Dev credentials (account-admin), not the publisher key — the publisher's inline policy is intentionally scoped to `data/*` only.
 
 ### Operator workflow — how to push changes to AWS
 
@@ -67,9 +71,9 @@ The mental model: the admin app accumulates a `pendingChanges` counter as the op
 
 ```bash
 pnpm i                                      # or: npm i
-bash deploy/bootstrap-aws.sh                # idempotent; prints bucket name + [tp] creds
-# paste [tp] block into ~/.aws/credentials
-cp .env.example .env && $EDITOR .env        # fill TP_BUCKET, TP_REGION, AWS_PROFILE=tp
+make cfn-deploy                             # creates bucket + tp-publisher IAM user via CFN
+# In the AWS console: IAM → Users → tp-publisher → create access key
+cp .env.example .env && $EDITOR .env        # fill TP_BUCKET, TP_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 pnpm publish-static                         # uploads HTML/CSS/JS to S3
 ```
 
@@ -122,17 +126,18 @@ publish.runPublish():
 
 ### Tear-down
 
+CloudFormation tears down the bucket + IAM user + inline policy in one shot, but the bucket must be empty first (the stack's `DeletionPolicy: Delete` won't remove a non-empty bucket). The access key on the publisher user also has to be deleted by hand — it was created out-of-band in the console, so CFN doesn't know about it.
+
 ```bash
-TP_BUCKET=... bash deploy/tear-down.sh      # interactive: empties bucket, deletes IAM user
+make cfn-delete                             # empties bucket (prompts), then deletes the stack
 ```
 
 or by hand:
 
 ```bash
-aws s3 rm s3://$BUCKET --recursive && aws s3 rb s3://$BUCKET
-aws iam delete-user-policy --user-name <user> --policy-name tp-publish
-aws iam delete-access-key --user-name <user> --access-key-id <id>
-aws iam delete-user --user-name <user>
+aws s3 rm s3://$TP_BUCKET --recursive
+# In the console: IAM → Users → tp-publisher → delete the access key
+aws cloudformation delete-stack --stack-name tp-result
 ```
 
 

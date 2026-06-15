@@ -14,8 +14,12 @@ BASE := http://localhost:$(PORT)
 .DEFAULT_GOAL := help
 
 .PHONY: help install dev test test-watch typecheck \
-        bootstrap publish status force-publish backup tear-down \
+        cfn-deploy publish status force-publish backup cfn-delete \
         wipe-data clean
+
+STACK_NAME    ?= tp-stm-result-stack
+BUCKET_PARAM  ?= $(TP_BUCKET)
+PUBLISHER     ?= tp-stm-publisher
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Tournament Planner — make targets\n\nUsage: make <target>\n\n" } \
@@ -40,14 +44,23 @@ typecheck: ## Type-check without emitting JS
 	npx tsc --noEmit
 
 ## AWS provisioning
-bootstrap: ## Create S3 bucket + IAM publisher user (idempotent)
-	bash deploy/bootstrap-aws.sh
+cfn-deploy: ## Deploy/update the CloudFormation stack (bucket + tp-publisher IAM user)
+	aws cloudformation deploy \
+	  --template-file deploy/cloudformation.yaml \
+	  --stack-name $(STACK_NAME) \
+	  --capabilities CAPABILITY_NAMED_IAM \
+	  $(if $(BUCKET_PARAM),--parameter-overrides BucketName=$(BUCKET_PARAM) PublisherUserName=$(PUBLISHER))
 
 publish: ## Sync static result site (result-site/) to S3 — run after HTML/CSS/JS edits
 	bash deploy/publish-static.sh
 
-tear-down: ## Delete the S3 bucket + IAM user (interactive)
-	bash deploy/tear-down.sh
+cfn-delete: ## Empty the bucket and delete the CloudFormation stack (prompts)
+	@: "$${TP_BUCKET:?TP_BUCKET not set — needed to empty the bucket}"
+	@read -rp "Empty s3://$(TP_BUCKET) and delete stack $(STACK_NAME)? [y/N] " r; \
+	 [[ "$$r" =~ ^[yY] ]] || { echo "skipped"; exit 0; }; \
+	 aws s3 rm s3://$(TP_BUCKET) --recursive || true; \
+	 aws cloudformation delete-stack --stack-name $(STACK_NAME); \
+	 echo "stack delete requested — note: the publisher access key was created out-of-band, delete it manually in the console"
 
 ## Live operations (admin must be running)
 status: ## Show publish status JSON

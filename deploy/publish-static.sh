@@ -11,7 +11,7 @@ if [ -f .env ]; then
   set -a; . ./.env; set +a
 fi
 
-: "${TP_BUCKET:?TP_BUCKET not set — run deploy/bootstrap-aws.sh first}"
+: "${TP_BUCKET:?TP_BUCKET not set — deploy the CFN stack first (make cfn-deploy) and put the bucket name in .env}"
 : "${AWS_PROFILE:=tp}"
 export AWS_PROFILE
 
