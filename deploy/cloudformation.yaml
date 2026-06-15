@@ -8,13 +8,13 @@ Description: >
 Parameters:
   BucketName:
     Type: String
-    Default: ssvettlingen-tournament-100731996173-eu-central-1-an
+    Default: ssvettlingen-tournament-100731996173
     Description: Globally-unique name for the result-site bucket (e.g. tp-result-myevent).
     AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
 
   PublisherUserName:
     Type: String
-    Default: tp-publisher
+    Default: tp-operator
     Description: >
       Name of the IAM user this stack will create. An inline publish policy is
       attached to it; the access key is created out-of-band in the console.
