@@ -101,6 +101,9 @@ $('#groups-overview-toggle').addEventListener('click', () => {
 $('#matches-overview-toggle').addEventListener('click', () => {
   toggleAllOverview($('#matches-overview'));
 });
+$('#bracket-overview-toggle').addEventListener('click', () => {
+  toggleAllOverview($('#bracket-overview'));
+});
 
 $$('.floating-jump').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1871,6 +1874,7 @@ function renderBracketWizard() {
 }
 
 function renderBracket() {
+  renderBracketOverview();
   const root = $('#bracket-list');
   root.replaceChildren();
   if (state.knockouts.length === 0) {
@@ -1878,6 +1882,37 @@ function renderBracket() {
     return;
   }
   for (const kb of state.knockouts) root.append(renderBracketCard(kb));
+}
+
+function renderBracketOverview() {
+  const root = $('#bracket-overview');
+  if (state.knockouts.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No brackets yet.'));
+    return;
+  }
+  const jumpTo = (id) => (e) => {
+    e.preventDefault();
+    const card = document.getElementById(id);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  renderOverviewTree({
+    rootEl: root,
+    items: state.knockouts,
+    getCat: kb => kb.category || '',
+    getCls: kb => (kb.classes || []).join('/'),
+    prefix: 'b',
+    renderItem: (kb) => {
+      const { done, total } = bracketProgress(kb);
+      const anchor = `bracket-${kb.id}`;
+      return el('li', {},
+        el('a', { href: `#${anchor}`, on: { click: jumpTo(anchor) } }, kb.name),
+        el('span', { class: 'muted' }, ` · size ${kb.size}`),
+        total > 0
+          ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`)
+          : el('span', { class: 'muted' }, ' · waiting on group results'),
+      );
+    },
+  });
 }
 
 function renderBracketCard(kb) {
@@ -1892,7 +1927,7 @@ function renderBracketCard(kb) {
     }
     cols.append(col);
   }
-  return el('div', { class: 'card bracket-card' },
+  return el('div', { class: 'card bracket-card', id: `bracket-${kb.id}` },
     el('div', { class: 'row', style: 'justify-content:space-between; align-items:center' },
       el('h3', {}, kb.name, label ? el('span', { class: 'muted' }, ` (${label})`) : null,
         el('span', { class: 'muted' }, ` · size ${kb.size}`)),

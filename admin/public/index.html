@@ -144,7 +144,15 @@
         <p class="hint">Each bracket is scoped to a category + classes. The player count is up to you — non-power-of-2 sizes get padded with byes.</p>
       </div>
       <div id="bracket-wizard"></div>
+      <div class="card" id="bracket-overview-card">
+        <div class="overview-header">
+          <h3>Overview</h3>
+          <button type="button" class="ghost small" id="bracket-overview-toggle">Expand all</button>
+        </div>
+        <div id="bracket-overview"></div>
+      </div>
       <div id="bracket-list"></div>
+      <button type="button" class="floating-jump" data-jump-to="bracket-overview-card" title="Jump to overview">↑ Overview</button>
     </section>
 
     <section data-tab="settings">
