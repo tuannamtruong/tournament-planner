@@ -19,7 +19,7 @@ BASE := http://localhost:$(PORT)
 
 STACK_NAME    ?= tp-stm-result-stack
 BUCKET_PARAM  ?= $(TP_BUCKET)
-PUBLISHER     ?= tp-stm-publisher
+PUBLISHER     ?= tp-operator
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Tournament Planner — make targets\n\nUsage: make <target>\n\n" } \
