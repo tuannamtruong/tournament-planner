@@ -1394,7 +1394,9 @@ function renderKnockoutMatchesSection(kb, kind, count, byRound) {
 }
 
 function renderKnockoutMatchRow(kb, roundNo, slot) {
-  const sets = slot.score.length ? slot.score : [[null, null], [null, null], [null, null]];
+  const sets = slot.score.length >= 3
+    ? slot.score
+    : [...slot.score, ...Array(3 - slot.score.length).fill([null, null])];
   const scoreInputs = el('div', { class: 'match-scores' },
     ...sets.map(([a, b], idx) => el('span', { class: 'score-pair' },
       el('input', { class: 'score', type: 'number', min: 0, value: a ?? '', 'data-idx': idx, 'data-side': 'a' }),
@@ -1460,7 +1462,9 @@ function renderMatchRow(g, m) {
       ),
     );
   }
-  const sets = m.score.length ? m.score : [[null, null], [null, null], [null, null]];
+  const sets = m.score.length >= 3
+    ? m.score
+    : [...m.score, ...Array(3 - m.score.length).fill([null, null])];
   const scoreInputs = el('div', { class: 'match-scores' },
     ...sets.map(([a, b], idx) => el('span', { class: 'score-pair' },
       el('input', { class: 'score', type: 'number', min: 0, value: a ?? '', 'data-idx': idx, 'data-side': 'a' }),
