@@ -60,6 +60,9 @@ nav#tabs {
   background: var(--card);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 nav#tabs a {
   display: inline-block;
