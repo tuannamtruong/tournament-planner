@@ -77,11 +77,16 @@ function renderMatch(slot, setColumns) {
   );
 }
 
+function roundLabel(round) {
+  const name = round && typeof round.name === 'string' ? round.name.trim() : '';
+  return name || `Round ${round.roundNo}`;
+}
+
 function renderRoundGroup(rounds, setColumns) {
   const cols = el('div', { class: 'bracket-cols' });
   for (const round of rounds) {
     const col = el('div', { class: 'bracket-round' },
-      el('h3', {}, `Round ${round.roundNo}`),
+      el('h3', {}, roundLabel(round)),
     );
     // Pair consecutive slots so we can draw a connector line between each pair.
     const pairs = el('div', { class: 'bracket-pairs' });

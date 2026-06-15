@@ -144,6 +144,7 @@ export function deriveViews(state: Tournament) {
     size: kb.size,
     rounds: kb.rounds.map(r => ({
       roundNo: r.roundNo,
+      name: r.name,
       slots: r.slots.map(s => ({
         slot: s.slot,
         p1: s.p1 ? nameOf(state, s.p1) : null,

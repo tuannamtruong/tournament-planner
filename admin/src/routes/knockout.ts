@@ -12,6 +12,10 @@ const CreateBracket = z.object({
   seeds: z.array(z.string()).default([]), // ordered participant IDs; gaps become BYE
 });
 
+const PatchRound = z.object({
+  name: z.string().min(1).max(60),
+});
+
 const PatchSlot = z.object({
   p1: z.string().nullable().optional(),
   p2: z.string().nullable().optional(),
@@ -27,6 +31,16 @@ function nextPow2(n: number): number {
   return Math.max(2, p);
 }
 
+// Default label for a round whose winners' slot count (i.e. number of matches
+// in that round) is `slots`. 1 → Final, 2 → Semifinal, 4 → Quarter Final,
+// anything bigger → "Round of {2*slots}". Operator may override per round.
+export function defaultRoundName(slots: number): string {
+  if (slots === 1) return 'Final';
+  if (slots === 2) return 'Semifinal';
+  if (slots === 4) return 'Quarter Final';
+  return `Round of ${slots * 2}`;
+}
+
 function emptyBracket(meta: { id: string; name: string; category: string; classes: string[] }, slotCount: number): Bracket {
   const rounds: BracketRound[] = [];
   let slots = slotCount / 2;
@@ -34,6 +48,7 @@ function emptyBracket(meta: { id: string; name: string; category: string; classe
   while (slots >= 1) {
     const r: BracketRound = {
       roundNo,
+      name: defaultRoundName(slots),
       slots: Array.from({ length: slots }, (_, i): BracketSlot => ({
         slot: i + 1,
         p1: null, p2: null,
@@ -103,6 +118,23 @@ export async function knockoutRoutes(app: FastifyInstance) {
         }
         s.knockouts.push(kb);
         return s;
+      },
+    );
+  });
+
+  app.patch('/api/knockouts/:kid/round/:r', async (req) => {
+    const { kid, r } = req.params as { kid: string; r: string };
+    const roundNo = Number(r);
+    const patch = PatchRound.parse(req.body);
+    return mutate(
+      { action: 'rename_round', target: `${kid}/r${roundNo}`, payload: patch },
+      (state) => {
+        const kb = state.knockouts.find(k => k.id === kid);
+        if (!kb) throw new Error(`bracket ${kid} not found`);
+        const round = kb.rounds.find(r => r.roundNo === roundNo);
+        if (!round) throw new Error(`bracket round ${roundNo} not found`);
+        round.name = patch.name.trim();
+        return state;
       },
     );
   });

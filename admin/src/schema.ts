@@ -75,6 +75,7 @@ export type BracketSlot = z.infer<typeof BracketSlot>;
 
 export const BracketRound = z.object({
   roundNo: z.number().int().positive(),
+  name: z.string().default(''),
   slots: z.array(BracketSlot),
 });
 export type BracketRound = z.infer<typeof BracketRound>;

@@ -1321,7 +1321,7 @@ function renderLiveOverview() {
     for (const r of kb.rounds) {
       for (const slot of r.slots) {
         if (slot.status === 'live' && slot.p1 && slot.p2) {
-          live.push({ kind: 'ko', kb, roundNo: r.roundNo, m: slot });
+          live.push({ kind: 'ko', kb, round: r, roundNo: r.roundNo, m: slot });
         }
       }
     }
@@ -1339,7 +1339,9 @@ function renderLiveOverview() {
   root.replaceChildren(el('ul', { class: 'overview-list' },
     ...live.map(item => {
       const anchor = item.kind === 'group' ? `matches-group-${item.g.id}` : `matches-bracket-${item.kb.id}`;
-      const label = item.kind === 'group' ? `${item.g.name} · R${item.roundNo}` : `${item.kb.name} · KO R${item.roundNo}`;
+      const label = item.kind === 'group'
+        ? `${item.g.name} · R${item.roundNo}`
+        : `${item.kb.name} · ${bracketRoundLabel(item.round)}`;
       return el('li', {},
         el('span', { class: 'live-court' }, item.m.court ? `Court ${item.m.court}` : 'No court'),
         el('span', {}, ` · ${nameOf(item.m.p1)} vs ${nameOf(item.m.p2)} `),
@@ -1387,7 +1389,7 @@ function renderKnockoutMatchesSection(kb, kind, count, byRound) {
     byRound.length === 0
       ? el('p', { class: 'muted' }, `No ${label.toLowerCase()} matches.`)
       : el('div', {}, ...byRound.map(r => el('div', {},
-          el('h4', {}, `Round ${r.roundNo}`),
+          el('h4', {}, bracketRoundLabel(kb.rounds.find(rr => rr.roundNo === r.roundNo) ?? r)),
           ...r.slots.map(slot => renderKnockoutMatchRow(kb, r.roundNo, slot)),
         ))),
   );
@@ -1532,6 +1534,13 @@ function bracketLabel(kb) {
   if (kb.category) parts.push(kb.category);
   if (kb.classes && kb.classes.length) parts.push(kb.classes.join('/'));
   return parts.join(' · ');
+}
+
+// Display label for a bracket round. Falls back to "Round N" if the round
+// has no custom name (e.g. legacy data persisted before this field existed).
+function bracketRoundLabel(round) {
+  const name = round && typeof round.name === 'string' ? round.name.trim() : '';
+  return name || `Round ${round?.roundNo ?? ''}`.trim();
 }
 
 $('#open-bracket-wizard').addEventListener('click', () => {
@@ -1933,12 +1942,31 @@ function renderBracketOverview() {
   });
 }
 
+async function renameBracketRound(kb, round) {
+  const current = bracketRoundLabel(round);
+  const next = window.prompt(`Rename "${current}" to:`, current);
+  if (next == null) return;
+  const trimmed = next.trim();
+  if (!trimmed || trimmed === current) return;
+  try {
+    await patch(`/api/knockouts/${kb.id}/round/${round.roundNo}`, { name: trimmed });
+    await refresh();
+  } catch (err) { alert(err.message); }
+}
+
 function renderBracketCard(kb) {
   const label = bracketLabel(kb);
   const cols = el('div', { class: 'bracket-cols' });
   for (const round of kb.rounds) {
     const col = el('div', { class: 'bracket-round' },
-      el('h4', {}, `Round ${round.roundNo}`),
+      el('h4', { class: 'bracket-round-head' },
+        el('span', {}, bracketRoundLabel(round)),
+        el('button', {
+          class: 'ghost small bracket-round-rename',
+          title: 'Rename round',
+          on: { click: () => renameBracketRound(kb, round) },
+        }, '✎'),
+      ),
     );
     for (const slot of round.slots) {
       col.append(renderBracketSlot(kb, round.roundNo, slot));
