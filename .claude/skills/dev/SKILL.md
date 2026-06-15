@@ -98,10 +98,31 @@ node .claude/skills/dev/driver.mjs serve --port 38400
 
 Same isolation (temp data file, no S3). Use this when you want to `curl
 /api/...` or hand the URL to the operator so they can poke the admin UI in
-their own browser. Headless visual checks aren't available from the agent
-side — see Prerequisites; the result viewer and admin UI can only be
-inspected via the JSON endpoints (`/view/data/*.json`, `/api/state`) from
-here.
+their own browser. For visual checks see "Screenshot UI" below; for
+JSON-only inspection from here, hit `/view/data/*.json` and `/api/state`.
+
+### Screenshot UI
+
+```bash
+node scripts/screenshot-views.mjs            # writes debug/screenshots/*.png
+node scripts/screenshot-views.mjs --keep     # leave the server running on a random port
+```
+
+What it does — same isolation pattern as `driver.mjs` (random free port, temp
+`TP_DATA_FILE`, `TP_BUCKET=''`), but with a heavier seed: 5 categories x 1–2
+classes of participants, five groups (round-robin / swiss / manual mix), and
+three knockouts (4-, 8-, and 32-slot) so the 5-column overview tree, the
+inline ≤4-round bracket layout, and the 5-round 2+3 row split all render in
+one shot. Playwright's Chromium drives `/view/index.html` and
+`/view/knockout.html` at 1400×2000, full-page PNGs written to
+`debug/screenshots/index.png` and `knockout.png`. Use it whenever you
+change `result-site/assets/render-*.js` or `app.css` — the diff against the
+previous PNG catches regressions an HTTP-only smoke can't.
+
+The script is intentionally separate from `driver.mjs`: the smoke driver
+stays fast (~3 s, no browser) for API correctness checks, and the screenshot
+script (~10 s on a cold Chromium launch) only runs when you need eyes on
+the rendered HTML.
 
 ### Verbose mode
 

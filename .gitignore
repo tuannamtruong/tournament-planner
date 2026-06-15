@@ -5,3 +5,4 @@ admin/data/
 .DS_Store
 dist/
 coverage/
+debug/screenshots/

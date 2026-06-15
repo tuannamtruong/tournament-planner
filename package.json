@@ -7,6 +7,7 @@
     "start": "tsx admin/src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "screenshot": "node scripts/screenshot-views.mjs",
     "publish-static": "bash deploy/publish-static.sh",
     "cfn-deploy": "make cfn-deploy",
     "cfn-delete": "make cfn-delete",

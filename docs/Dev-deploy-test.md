@@ -18,7 +18,17 @@ pnpm dev              # tsx watch admin/src/index.ts → http://localhost:37325
 
 # Tests
 pnpm test             # vitest — pairing + standings (13 tests)
+
+# Screenshot the result-site against a hermetic seeded dataset
+# (used to catch visual regressions in the group-stage tree and bracket
+# layouts when changing result-site/assets/render-*.js or app.css)
+node scripts/screenshot-views.mjs        # writes debug/screenshots/*.png
 ```
+
+Requires Playwright's Chromium (`npm i` already pulls Playwright as a
+devDependency; run `npx playwright install chromium` once to fetch the
+browser, and `sudo npx playwright install-deps chromium` once for the apt
+libs Chromium needs to launch on Ubuntu).
 
 No build step anywhere. Edit a file, reload the page.
 
