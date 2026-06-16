@@ -24,6 +24,7 @@ const app = Fastify({
 
 const FIELD_LABEL: Record<string, string> = {
   category: 'Category',
+  class: 'Class',
   classes: 'Classes',
   name: 'Name',
   mode: 'Mode',

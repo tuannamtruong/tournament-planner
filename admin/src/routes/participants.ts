@@ -8,8 +8,8 @@ import { propagate as propagateBracketWinner } from './knockout.ts';
 const NewParticipant = z.object({
   name: z.string().min(1),
   club: z.string().default(''),
-  category: z.string().default(''),
-  class: z.string().default(''),
+  category: z.string().min(1),
+  class: z.string().min(1),
   seed: z.number().int().nonnegative().default(0),
 });
 

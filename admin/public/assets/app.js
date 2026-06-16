@@ -448,17 +448,51 @@ function renderCategorySection(cat, list, sorted) {
   );
 }
 
+function participantFormMissing() {
+  const form = $('#add-participant');
+  const missing = [];
+  if (!form.elements.category.value) missing.push('category');
+  if (!form.elements.class.value) missing.push('class');
+  return missing;
+}
+
+function setParticipantFormErrors(missing) {
+  const form = $('#add-participant');
+  const errEl = $('#add-participant-error');
+  form.elements.category.classList.toggle('invalid', missing.includes('category'));
+  form.elements.class.classList.toggle('invalid', missing.includes('class'));
+  if (missing.length === 0) {
+    errEl.hidden = true;
+    errEl.textContent = '';
+    return;
+  }
+  const parts = [];
+  if (missing.includes('category')) parts.push('a category');
+  if (missing.includes('class')) parts.push('a class');
+  errEl.textContent = `Pick ${parts.join(' and ')}.`;
+  errEl.hidden = false;
+}
+
+$('#add-participant').addEventListener('change', (e) => {
+  if (e.target.name === 'category' || e.target.name === 'class') {
+    if (!$('#add-participant-error').hidden) setParticipantFormErrors(participantFormMissing());
+  }
+});
+
 $('#add-participant').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const missing = participantFormMissing();
+  if (missing.length > 0) { setParticipantFormErrors(missing); return; }
   const fd = new FormData(e.target);
   await post('/api/participants', {
     name: fd.get('name'),
     club: fd.get('club') || '',
-    category: fd.get('category') || '',
-    class: fd.get('class') || '',
+    category: fd.get('category'),
+    class: fd.get('class'),
     seed: Number(fd.get('seed') || 0),
   });
   e.target.reset();
+  setParticipantFormErrors([]);
   await refresh();
 });
 
