@@ -334,59 +334,12 @@ details.overview-cat > .overview-list { margin-left: 1.5rem; }
 .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .muted { color: var(--muted); font-size: 0.85rem; }
 
-.match {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px dashed var(--border);
-}
-.match .match-court input.court-input { width: 6rem; }
-.match .match-players {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.match .match-actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.match .match-scores {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.match .score-pair {
-  display: inline-flex;
-  gap: 0.25rem;
-  align-items: center;
-}
-.match .match-buttons {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-}
-.match input.score { width: 3rem; text-align: center; }
 input.score.invalid {
   border-color: var(--red);
   background: #fef2f2;
   color: var(--red);
 }
 input.score.invalid:focus { outline-color: var(--red); }
-/* hide number-input spin arrows */
-.match input.score::-webkit-inner-spin-button,
-.match input.score::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.match input.score { -moz-appearance: textfield; appearance: textfield; }
-.match .status { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); }
-.match .status.done { color: var(--green); }
-.match .status.live { color: var(--amber); }
-.match .remove-match { color: var(--muted); padding: 0.1rem 0.4rem; }
-.match .remove-match:hover { color: #dc2626; }
-.match-bye { color: var(--muted); }
 
 details.matches-section { margin-bottom: 0.5rem; }
 details.matches-section > summary {
@@ -399,30 +352,117 @@ details.matches-section > summary {
   display: inline-block;
   vertical-align: top;
   margin-right: 1rem;
-  min-width: 200px;
+  min-width: 220px;
 }
-.bracket-slot {
+
+/* Shared "bracket-match" grid used for group matches (both tabs) and bracket
+   slots. Two rows per match (one per player), each with a name cell + N set
+   cells. Mirrors result-site .bracket-match so layouts line up. */
+.bracket-match {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 0.5rem;
-  background: var(--card);
-  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  margin: 0.4rem 0;
+}
+.bracket-match.live { background: #fef3c7; }
+.bracket-match.walkover { background: #fff7ed; }
+.bracket-match.clickable { cursor: pointer; }
+.bracket-match.clickable:hover { background: #f1f5f9; border-color: #94a3b8; }
+.bm-seed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.8rem;
+  padding: 0 0.3rem;
+  border-right: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.bm-seed.bm-court { padding: 0.2rem 0.3rem; }
+.bm-seed input.court-input { width: 4rem; padding: 0.15rem 0.3rem; font-size: 0.8rem; }
+.bm-rows { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.bm-row {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 1.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.bm-row:last-child { border-bottom: none; }
+.bm-name {
+  flex: 1;
+  padding: 0.2rem 0.5rem;
+  min-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+}
+.bm-name.winner { font-weight: 700; }
+.bm-set {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  padding: 0.1rem 0.15rem;
+  border-left: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.bm-set.set-won { color: var(--fg); font-weight: 600; }
+.bm-set.bm-input { padding: 0.1rem; }
+.bm-set input.score {
+  width: 2.4rem;
+  text-align: center;
+  padding: 0.15rem 0.1rem;
+  border: 1px solid transparent;
+  background: transparent;
   font-size: 0.85rem;
 }
-.bracket-slot .player {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
+.bm-set input.score:focus {
+  border-color: var(--accent);
+  background: var(--card);
 }
-.bracket-slot .winner { font-weight: 600; }
-.bracket-slot.clickable { cursor: pointer; }
-.bracket-slot.clickable:hover { background: #f1f5f9; border-color: #94a3b8; }
+.bm-walkover {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.2rem 0.5rem;
+  border-left: 1px solid var(--border);
+  font-style: italic;
+  color: var(--muted);
+}
+.bm-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.4rem;
+  border-left: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.bm-actions .status {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bm-actions .status.done { color: var(--green); }
+.bm-actions .status.live { color: var(--amber); }
+.bm-actions button { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
+.bm-actions .remove-match { color: var(--muted); padding: 0.1rem 0.4rem; }
+.bm-actions .remove-match:hover { color: #dc2626; }
+.bracket-match.match-bye .bm-name { color: var(--muted); font-style: italic; }
 
 @keyframes match-flash {
   0%   { background: #fde68a; }
   100% { background: transparent; }
 }
-.match.flash { animation: match-flash 1.4s ease-out; }
+.bracket-match.flash { animation: match-flash 1.4s ease-out; }
 
 input.score { -moz-appearance: textfield; appearance: textfield; }
 input.score::-webkit-inner-spin-button,
@@ -441,7 +481,6 @@ input.score::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .candidate-table th.sortable:hover { background: #f3f4f6; }
 .candidate-table tr.withdrawn-row td { background: #fef2f2; }
 tr.withdrawn-row td { background: #fef2f2; }
-.match.match-walkover { background: #fff7ed; }
 .walkover-note { font-style: italic; color: var(--muted); }
 
 .badge { display: inline-block; padding: 0 0.35rem; border-radius: 999px; font-size: 0.7rem; line-height: 1.4; border: 1px solid var(--border); }
@@ -491,7 +530,6 @@ fieldset.inline-checks label {
 
 @media (max-width: 600px) {
   header h1 { font-size: 1rem; }
-  .match { grid-template-columns: 1fr; }
 }
 
 /* -- Participants tab -------------------------------------------------------- */

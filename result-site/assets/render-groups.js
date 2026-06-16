@@ -12,17 +12,89 @@ function el(tag, attrs = {}, ...kids) {
   return n;
 }
 
-function scoreText(score) {
-  if (!score || score.length === 0) return '';
-  return score.map(([a, b]) => `${a}-${b}`).join(', ');
+function maxSetCount(groups) {
+  let max = 0;
+  for (const g of groups) {
+    for (const r of g.rounds || []) {
+      for (const m of r.matches) {
+        if (m.score && m.score.length > max) max = m.score.length;
+      }
+    }
+  }
+  return Math.max(3, max);
 }
 
-function matchScoreCell(m) {
-  if (m.walkover) {
-    const winnerName = m.walkover === 'p1' ? m.p1 : m.p2;
-    return el('span', { class: 'score walkover' }, `walkover (${winnerName})`);
+function playerRow(name, mySets, otherSets, isWinner, sets, setColumns, walkover) {
+  const cells = [el('div', { class: 'bm-name' + (isWinner ? ' winner' : '') }, name || '—')];
+  if (walkover) {
+    cells.push(el('div', { class: 'bm-walkover', style: `grid-column: span ${setColumns}` },
+      isWinner ? 'walkover' : '',
+    ));
+  } else {
+    for (let i = 0; i < setColumns; i++) {
+      const set = sets[i];
+      const mine = set ? mySets(set) : null;
+      const other = set ? otherSets(set) : null;
+      const winSet = set != null && mine != null && other != null && mine > other;
+      cells.push(el('div', { class: 'bm-set' + (winSet ? ' set-won' : '') },
+        mine == null ? '' : String(mine),
+      ));
+    }
   }
-  return el('span', { class: 'score' }, scoreText(m.score));
+  return el('div', { class: 'bm-row' + (isWinner ? ' winner' : '') }, ...cells);
+}
+
+function renderGroupMatch(m, setColumns) {
+  const sets = m.score || [];
+  const isWalkover = !!m.walkover;
+  let p1Won = false, p2Won = false;
+  if (isWalkover) {
+    p1Won = m.walkover === 'p1';
+    p2Won = m.walkover === 'p2';
+  } else {
+    let p1Sets = 0, p2Sets = 0;
+    for (const [a, b] of sets) {
+      if (a > b) p1Sets++;
+      else if (b > a) p2Sets++;
+    }
+    if (p1Sets > p2Sets && m.status === 'done') p1Won = true;
+    else if (p2Sets > p1Sets && m.status === 'done') p2Won = true;
+  }
+  const classes = ['bracket-match', m.status || 'pending', isWalkover ? 'walkover' : ''].filter(Boolean).join(' ');
+  return el('div', { class: classes },
+    el('div', { class: 'bm-seed' }, m.court ? String(m.court) : ''),
+    el('div', { class: 'bm-rows' },
+      playerRow(m.p1, s => s[0], s => s[1], p1Won, sets, setColumns, isWalkover),
+      playerRow(m.p2, s => s[1], s => s[0], p2Won, sets, setColumns, isWalkover),
+    ),
+  );
+}
+
+export function renderStandingsTable(standings) {
+  return el('table', { class: 'standings' },
+    el('thead', {}, el('tr', {},
+      el('th', { class: 'num' }, '#'),
+      el('th', {}, 'Player'),
+      el('th', { class: 'num' }, 'P'),
+      el('th', { class: 'num' }, 'W'),
+      el('th', { class: 'num' }, 'L'),
+      el('th', { class: 'num' }, 'Sets'),
+      el('th', { class: 'num' }, 'Pts'),
+    )),
+    el('tbody', {}, ...standings.map(s => el('tr', {
+      class: [s.withdrawn ? 'withdrawn' : '', s.rank === 1 && s.played > 0 && !s.withdrawn ? 'top-pts' : ''].filter(Boolean).join(' '),
+    },
+      el('td', { class: 'num' }, String(s.rank)),
+      el('td', {}, s.name,
+        s.withdrawn ? el('span', { class: 'badge wd' }, ' WD') : null,
+      ),
+      el('td', { class: 'num' }, String(s.played)),
+      el('td', { class: 'num' }, String(s.won)),
+      el('td', { class: 'num' }, String(s.lost)),
+      el('td', { class: 'num' }, `${s.setsWon}-${s.setsLost}`),
+      el('td', { class: 'num' }, `${s.pointsWon}-${s.pointsLost}`),
+    ))),
+  );
 }
 
 function matchCounts(g) {
@@ -132,44 +204,16 @@ export function renderGroups(root, groups) {
     card.addEventListener('toggle', updateToggleLabel);
 
     if (g.standings && g.standings.length > 0) {
-      card.append(
-        el('table', { class: 'standings' },
-          el('thead', {}, el('tr', {},
-            el('th', {}, '#'),
-            el('th', {}, 'Player'),
-            el('th', {}, 'W'),
-            el('th', {}, 'L'),
-            el('th', {}, 'Sets'),
-            el('th', {}, 'Pts'),
-          )),
-          el('tbody', {}, ...g.standings.map(s => el('tr', { class: s.withdrawn ? 'withdrawn' : '' },
-            el('td', {}, s.rank),
-            el('td', {}, s.name,
-              s.withdrawn ? el('span', { class: 'badge wd' }, ' WD') : null,
-            ),
-            el('td', {}, s.won),
-            el('td', {}, s.lost),
-            el('td', {}, `${s.setsWon}-${s.setsLost}`),
-            el('td', {}, `${s.pointsWon}-${s.pointsLost}`),
-          ))),
-        ),
-      );
+      card.append(renderStandingsTable(g.standings));
     }
 
     if (g.rounds && g.rounds.length > 0) {
+      const setColumns = maxSetCount([g]);
       const matchList = el('div', { class: 'matches' });
       for (const r of g.rounds) {
         matchList.append(el('h3', {}, `Round ${r.roundNo}`));
         for (const m of r.matches) {
-          const classes = ['match', m.status, m.walkover ? 'walkover' : ''].filter(Boolean).join(' ');
-          matchList.append(el('div', { class: classes },
-            el('span', { class: 'court muted' }, m.court || ''),
-            el('span', { class: 'player' }, m.p1),
-            el('span', { class: 'vs muted' }, 'vs'),
-            el('span', { class: 'player' }, m.p2),
-            matchScoreCell(m),
-            el('span', { class: 'status muted' }, m.walkover ? 'walkover' : m.status),
-          ));
+          matchList.append(renderGroupMatch(m, setColumns));
         }
       }
       card.append(matchList);
