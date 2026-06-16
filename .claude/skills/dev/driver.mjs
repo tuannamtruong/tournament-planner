@@ -265,6 +265,38 @@ async function smoke() {
   assert(pendingBefore.entries.some(e => e.action === 'add_participant'), 'pending log should record add_participant');
   console.log(`✓ pending log has ${pendingBefore.entries.length} entries (snapshots stripped)`);
 
+  // 9a. Each entry carries a server-rendered `tab` and `summary`, with IDs
+  // resolved against the entry's pre-mutation snapshot. Spot-check the
+  // formats that are most likely to silently regress.
+  const byAction = new Map(pendingBefore.entries.map(e => [e.action, e]));
+  const VALID_TABS = new Set(['participants', 'groups', 'matches', 'bracket', 'settings']);
+  for (const e of pendingBefore.entries) {
+    assert(VALID_TABS.has(e.tab), `entry #${e.index} (${e.action}) has unknown tab "${e.tab}"`);
+    assert(typeof e.summary === 'string' && e.summary.length > 0, `entry #${e.index} (${e.action}) has empty summary`);
+  }
+  const rename = byAction.get('rename_tournament');
+  assert(rename?.tab === 'settings' && rename.summary.includes('Smoke Cup'),
+         `rename_tournament summary should mention the new name (got "${rename?.summary}")`);
+  const addP = byAction.get('add_participant');
+  assert(addP?.tab === 'participants' && /Alice|Bob|Cara|Dan/.test(addP.summary) && /WS/.test(addP.summary),
+         `add_participant summary should include player name + category (got "${addP?.summary}")`);
+  const createG = byAction.get('create_group');
+  assert(createG?.tab === 'groups' && createG.summary.includes('Group A') && createG.summary.includes('WS') && createG.summary.includes('round_robin'),
+         `create_group summary should include name + category/class + mode (got "${createG?.summary}")`);
+  const genR = byAction.get('generate_round');
+  assert(genR?.tab === 'groups' && genR.summary.includes('Group A') && /round 1|R1/i.test(genR.summary),
+         `generate_round summary should reference the group and round number (got "${genR?.summary}")`);
+  const patchM = byAction.get('patch_match');
+  assert(patchM?.tab === 'matches' && patchM.summary.includes('Group A') && / vs /.test(patchM.summary),
+         `patch_match summary should resolve player names + group (got "${patchM?.summary}")`);
+  const doneMatch = pendingBefore.entries.find(e => e.action === 'patch_match' && /status→done/.test(e.summary));
+  assert(doneMatch && /21\D18/.test(doneMatch.summary),
+         `patch_match → done summary should include the new score (got "${doneMatch?.summary}")`);
+  const createKbWsA = pendingBefore.entries.find(e => e.action === 'create_bracket' && e.summary.includes('WS-A KO'));
+  assert(createKbWsA?.tab === 'bracket' && /slot/.test(createKbWsA.summary),
+         `create_bracket summary should include name + slot count (got "${createKbWsA?.summary}")`);
+  console.log(`✓ pending entries carry tab + summary (player names, category/class, scores resolved)`);
+
   // 10. Linear undo: revert from index 1 → discard entries 1..N, keep entry 0 only.
   await api('POST', '/api/pending/revert', { index: 1 });
   const pendingAfter = await api('GET', '/api/pending');
