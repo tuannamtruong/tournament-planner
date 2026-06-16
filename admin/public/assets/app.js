@@ -977,15 +977,6 @@ function computeStandings(g) {
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
-// Map "pId vs qId" -> done match (last entered wins if duplicates).
-function h2hIndex(g) {
-  const idx = new Map();
-  for (const m of doneMatches(g)) {
-    idx.set(`${m.p1}|${m.p2}`, m);
-  }
-  return idx;
-}
-
 function renderStandingsTable(g) {
   const rows = computeStandings(g);
   if (rows.length === 0) return el('p', { class: 'muted' }, 'No members yet.');
@@ -1008,35 +999,6 @@ function renderStandingsTable(g) {
       el('td', { class: 'num' }, `${r.setsWon}-${r.setsLost}`),
       el('td', { class: 'num' }, `${r.pointsWon}-${r.pointsLost}`),
     ))),
-  );
-}
-
-function renderH2H(g) {
-  if (g.members.length < 2) return null;
-  const ordered = computeStandings(g).map(r => r.participantId);
-  const idx = h2hIndex(g);
-  const cell = (rowId, colId) => {
-    if (rowId === colId) return el('td', { class: 'self' }, '—');
-    const m = idx.get(`${rowId}|${colId}`) ?? idx.get(`${colId}|${rowId}`);
-    if (!m) return el('td', { class: 'empty' }, '·');
-    const { p1Sets, p2Sets } = setScore(m);
-    const rowIsP1 = m.p1 === rowId;
-    const a = rowIsP1 ? p1Sets : p2Sets;
-    const b = rowIsP1 ? p2Sets : p1Sets;
-    return el('td', { class: a > b ? 'win' : '' }, `${a}–${b}`);
-  };
-  return el('details', { open: true },
-    el('summary', {}, 'Head-to-head'),
-    el('table', { class: 'h2h' },
-      el('thead', {}, el('tr', {},
-        el('th', {}, ''),
-        ...ordered.map(id => el('th', {}, nameOf(id))),
-      )),
-      el('tbody', {}, ...ordered.map(rowId => el('tr', {},
-        el('th', { class: 'rowhead' }, nameOf(rowId)),
-        ...ordered.map(colId => cell(rowId, colId)),
-      ))),
-    ),
   );
 }
 
@@ -1192,7 +1154,6 @@ function renderGroupstage() {
       el('h3', {}, `${g.name} `, el('span', { class: 'muted' }, `(${groupLabel(g)})`)),
       renderMembersPanel(g),
       renderStandingsTable(g),
-      renderH2H(g),
       el('h4', {}, 'Pairings'),
       renderGroupstageMatches(g),
       el('div', { class: 'row', style: 'gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap' },
