@@ -154,6 +154,7 @@ try {
 } catch {}
 
 // -- Publish status -----------------------------------------------------------
+let lastPendingCount = -1;
 async function refreshPublishStatus() {
   try {
     const s = await get('/api/publish/status');
@@ -178,6 +179,12 @@ async function refreshPublishStatus() {
     }
     const dbg = $('#publish-debug');
     if (dbg) dbg.textContent = JSON.stringify(s, null, 2);
+    // Re-render the Pending tab + badge only when the count actually changes,
+    // so we're not rebuilding the DOM every 2 s during idle.
+    if (s.pendingChanges !== lastPendingCount) {
+      lastPendingCount = s.pendingChanges;
+      renderPending();
+    }
   } catch (err) {
     $('#status-text').textContent = 'Status unreachable';
   }
@@ -2256,6 +2263,103 @@ $('#rename').addEventListener('submit', async (e) => {
   await refresh();
 });
 
+// -- Pending changes ---------------------------------------------------------
+// Server provides `tab` and `summary` per entry, resolved against the
+// pre-mutation snapshot (so e.g. a deleted player's name is still rendered).
+
+const TAB_LABEL = {
+  participants: 'Participants',
+  groups:       'Groups',
+  matches:      'Matches',
+  bracket:      'Bracket',
+  settings:     'Settings',
+};
+
+function formatTs(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch { return iso; }
+}
+
+async function renderPending() {
+  const list = $('#pending-list');
+  const toolbar = $('#pending-toolbar');
+  if (!list || !toolbar) return;
+  let data;
+  try {
+    data = await get('/api/pending');
+  } catch (err) {
+    list.replaceChildren(el('p', { class: 'form-error' }, 'Failed to load pending changes: ' + err.message));
+    toolbar.replaceChildren();
+    return;
+  }
+  const entries = data.entries || [];
+
+  if (entries.length === 0) {
+    toolbar.replaceChildren();
+    list.replaceChildren(
+      el('p', { class: 'muted' }, 'No pending changes since the last publish.'),
+    );
+    return;
+  }
+
+  toolbar.replaceChildren(
+    el('div', { class: 'pending-summary' },
+      el('span', {}, `${entries.length} unpublished change${entries.length === 1 ? '' : 's'}`),
+      el('button', {
+        class: 'danger',
+        on: { click: () => revertPending({ mode: 'all' }, `Revert ALL ${entries.length} pending change(s)? Current state will be replaced by the last-published baseline.`) },
+      }, 'Revert all'),
+    ),
+  );
+
+  // Newest first.
+  const rows = [...entries].reverse().map(e => {
+    const discardCount = entries.length - e.index;  // this entry + everything after
+    return el('div', { class: 'pending-row' },
+      el('div', { class: 'pending-meta' },
+        el('div', { class: 'pending-line' },
+          el('span', { class: `pending-tab-pill tab-${e.tab}` }, TAB_LABEL[e.tab] ?? e.tab),
+          el('span', { class: 'pending-action' }, e.summary),
+        ),
+        el('span', { class: 'pending-ts mono' }, formatTs(e.ts)),
+      ),
+      el('button', {
+        class: 'ghost small',
+        title: discardCount === 1
+          ? 'Revert this change'
+          : `Revert this change and the ${discardCount - 1} newer change(s)`,
+        on: { click: () => revertPending({ index: e.index }, discardCount === 1
+          ? `Revert "${e.summary}"?`
+          : `Revert "${e.summary}" and discard the ${discardCount - 1} newer change(s)?`) },
+      }, 'Revert from here'),
+    );
+  });
+  list.replaceChildren(...rows);
+}
+
+async function revertPending(body, confirmMsg) {
+  if (!confirm(confirmMsg)) return;
+  try {
+    await post('/api/pending/revert', body);
+  } catch (err) {
+    alert('Revert failed: ' + err.message);
+    return;
+  }
+  await refresh();
+  await renderPending();
+  await refreshPublishStatus();
+}
+
+// Refresh the pending list when the user opens the Pending tab. The badge
+// is kept current by the 2 s publish-status poll, which calls renderPending
+// whenever the unpublished count changes.
+$$('nav#tabs a[data-tab="pending"]').forEach(a => {
+  a.addEventListener('click', () => { renderPending(); });
+});
+
 // -- Boot ---------------------------------------------------------------------
 await refresh();
+await renderPending();
 await refreshPublishStatus();

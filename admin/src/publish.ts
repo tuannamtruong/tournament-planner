@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { load } from './storage.ts';
 import { computeStandings } from './standings.ts';
+import { clearPending, loadPending } from './pending.ts';
 import type { Tournament } from './schema.ts';
 
 const BUCKET = process.env.TP_BUCKET ?? '';
@@ -33,12 +34,13 @@ export function getStatus(): PublishStatus {
 }
 
 /**
- * Mark state as dirty. The actual push is manual — the operator clicks
- * "Publish" (or "Push backup snapshot") when ready. We still count
- * pending changes so the UI can show how many edits are unpushed.
+ * pendingChanges is the authoritative count of unpushed mutations. It's
+ * derived from the on-disk pending log so it survives a server restart.
+ * Called from the publish-status route; cheap because the log is cached.
  */
-export function schedulePublish(): void {
-  status.pendingChanges++;
+export async function refreshPendingCount(): Promise<void> {
+  const log = await loadPending();
+  status.pendingChanges = log.entries.length;
 }
 
 /**
@@ -54,7 +56,6 @@ async function runPublish(): Promise<void> {
   if (!BUCKET) return;
   if (status.inFlight) return;
   status.inFlight = true;
-  const pendingAtStart = status.pendingChanges;
   try {
     const state = await load();
     const views = deriveViews(state);
@@ -65,7 +66,8 @@ async function runPublish(): Promise<void> {
     ]);
     status.lastSuccess = new Date().toISOString();
     status.lastError = null;
-    status.pendingChanges = Math.max(0, status.pendingChanges - pendingAtStart);
+    await clearPending();
+    status.pendingChanges = 0;
   } catch (err) {
     status.lastError = err instanceof Error ? err.message : String(err);
     throw err;

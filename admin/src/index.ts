@@ -4,13 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
 import { startLocalSnapshots, dataFilePath, load } from './storage.ts';
-import { schedulePublish, getStatus, deriveViews } from './publish.ts';
+import { getStatus, refreshPendingCount, deriveViews } from './publish.ts';
 import { stateRoutes } from './routes/state.ts';
 import { participantRoutes } from './routes/participants.ts';
 import { groupRoutes } from './routes/groups.ts';
 import { matchRoutes } from './routes/matches.ts';
 import { knockoutRoutes } from './routes/knockout.ts';
 import { publishRoutes } from './routes/publish.ts';
+import { pendingRoutes } from './routes/pending.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_DIR = path.resolve(__dirname, '../public');
@@ -71,25 +72,16 @@ app.get('/view/data/:file', async (req, reply) => {
     .send(spec.pick(views));
 });
 
-// Mark state as dirty after every successful state-changing API call so the UI
-// can show the pending-changes count. The actual push to S3 is manual — the
-// operator clicks "Publish" when they want to publish.
-app.addHook('onResponse', async (req, reply) => {
-  if (reply.statusCode >= 400) return;
-  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;
-  if (!req.url.startsWith('/api/')) return;
-  if (req.url.startsWith('/api/publish')) return;
-  schedulePublish();
-});
-
 await app.register(stateRoutes);
 await app.register(participantRoutes);
 await app.register(groupRoutes);
 await app.register(matchRoutes);
 await app.register(knockoutRoutes);
 await app.register(publishRoutes);
+await app.register(pendingRoutes);
 
 startLocalSnapshots();
+await refreshPendingCount();
 
 const port = Number(process.env.PORT ?? 37325);
 await app.listen({ port, host: '127.0.0.1' });

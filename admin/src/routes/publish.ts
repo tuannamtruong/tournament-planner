@@ -1,8 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { forcePush, getStatus, pushBackup } from '../publish.ts';
+import { forcePush, getStatus, pushBackup, refreshPendingCount } from '../publish.ts';
 
 export async function publishRoutes(app: FastifyInstance) {
-  app.get('/api/publish/status', async () => getStatus());
+  app.get('/api/publish/status', async () => {
+    await refreshPendingCount();
+    return getStatus();
+  });
 
   app.post('/api/publish/force', async (_req, reply) => {
     try {

@@ -21,6 +21,7 @@
     <a data-tab="groups">Groups</a>
     <a data-tab="matches">Matches</a>
     <a data-tab="bracket">Bracket</a>
+    <a data-tab="pending">Pending</a>
     <a data-tab="settings">Settings</a>
   </nav>
 
@@ -153,6 +154,17 @@
       </div>
       <div id="bracket-list"></div>
       <button type="button" class="floating-jump" data-jump-to="bracket-overview-card" title="Jump to overview">↑ Overview</button>
+    </section>
+
+    <section data-tab="pending">
+      <h2>Pending changes</h2>
+      <p class="hint">
+        Every state change since the last successful publish, newest first. Click
+        <strong>Revert from here</strong> to roll back to the state just before that
+        edit — every later change is discarded too. Once published, the list resets.
+      </p>
+      <div id="pending-toolbar"></div>
+      <div id="pending-list"></div>
     </section>
 
     <section data-tab="settings">

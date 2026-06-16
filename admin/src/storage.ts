@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { Tournament, emptyTournament, type Tournament as TournamentT, type AuditEntry } from './schema.ts';
+import { appendPending, getSnapshot, truncatePending } from './pending.ts';
 
 const DATA_FILE = process.env.TP_DATA_FILE
   ? path.resolve(process.env.TP_DATA_FILE)
@@ -43,14 +44,42 @@ type Mutator = (state: TournamentT) => TournamentT | Promise<TournamentT>;
 export async function mutate(audit: Omit<AuditEntry, 'ts'>, fn: Mutator): Promise<TournamentT> {
   const result = writeChain.then(async () => {
     const current = await load();
+    const preMutation = structuredClone(current);
     const draft: TournamentT = structuredClone(current);
     const next = await fn(draft);
-    next.tournament.updatedAt = new Date().toISOString();
-    next.auditLog.push({ ts: next.tournament.updatedAt, ...audit });
+    const ts = new Date().toISOString();
+    next.tournament.updatedAt = ts;
+    next.auditLog.push({ ts, ...audit });
     if (next.auditLog.length > 5000) next.auditLog.splice(0, next.auditLog.length - 5000);
     const validated = Tournament.parse(next);
     await writeAtomic(validated);
     cache = validated;
+    try {
+      await appendPending(preMutation, { ts, action: audit.action, target: audit.target, payload: audit.payload });
+    } catch (err) {
+      // Pending log is best-effort: a failure here doesn't roll back the main
+      // write. Operator loses the per-change undo for this mutation only.
+      console.error('[pending] append failed', err);
+    }
+    return validated;
+  });
+  writeChain = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+/**
+ * Linear-undo: replace the live state with the snapshot recorded immediately
+ * before the pending entry at `index`, then truncate the pending log so that
+ * entries [index, end) are discarded. Goes through the same writeChain as
+ * mutate() so it can't race with concurrent edits.
+ */
+export async function restoreFromPending(index: number): Promise<TournamentT> {
+  const result = writeChain.then(async () => {
+    const restored = await getSnapshot(index);
+    const validated = Tournament.parse(restored);
+    await writeAtomic(validated);
+    cache = validated;
+    await truncatePending(index);
     return validated;
   });
   writeChain = result.then(() => undefined, () => undefined);
