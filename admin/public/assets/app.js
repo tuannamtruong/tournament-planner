@@ -73,19 +73,50 @@ function buildReadOnlySetCells(score, setCols = MATCH_SET_COLS) {
   return { p1Cells, p2Cells };
 }
 
-function buildWalkoverRows(p1Name, p2Name, winnerSide, setCols = MATCH_SET_COLS) {
+function buildWalkoverRows(p1Name, p2Name, winnerSide, spanCols) {
   const p1Won = winnerSide === 'p1';
   const p2Won = winnerSide === 'p2';
   return [
     el('div', { class: 'bm-row' + (p1Won ? ' winner' : '') },
       el('div', { class: 'bm-name' + (p1Won ? ' winner' : '') }, p1Name),
-      el('div', { class: 'bm-walkover', style: `grid-column: span ${setCols}` }, p1Won ? 'walkover' : ''),
+      el('div', { class: 'bm-walkover', style: `grid-column: span ${spanCols}` }, p1Won ? 'walkover' : ''),
     ),
     el('div', { class: 'bm-row' + (p2Won ? ' winner' : '') },
       el('div', { class: 'bm-name' + (p2Won ? ' winner' : '') }, p2Name),
-      el('div', { class: 'bm-walkover', style: `grid-column: span ${setCols}` }, p2Won ? 'walkover' : ''),
+      el('div', { class: 'bm-walkover', style: `grid-column: span ${spanCols}` }, p2Won ? 'walkover' : ''),
     ),
   ];
+}
+
+// Grid column templates per match-cell shape. Keep these in sync with the
+// number of set columns + action columns each renderer adds.
+const GRID = {
+  groupActions: 'minmax(7rem, max-content) repeat(3, 2.4rem) auto auto',  // name + 3 sets + toggle/status + WO
+  koActions:    'minmax(7rem, max-content) repeat(3, 2.4rem) auto auto auto',  // + win-for
+  readOnly:     'minmax(7rem, max-content) repeat(3, 2.4rem)',
+  walkoverGrp:  'minmax(7rem, max-content) auto',
+  walkoverRO:   'minmax(7rem, max-content) auto',
+};
+
+function statusToggleCells(currentStatus, allowDone, onAdvance) {
+  // Top cell = cycling toggle (▶ pending→live, ✓ live→done, ↺ done→pending).
+  // For KO slots (allowDone=false) the toggle only swaps live↔pending; the
+  // "done" state is reached by clicking the Win-for buttons in column 2.
+  let icon, title;
+  if (currentStatus === 'pending') { icon = '▶'; title = 'Mark live'; }
+  else if (currentStatus === 'live') {
+    icon = allowDone ? '✓' : '↺';
+    title = allowDone ? 'Mark done' : 'Revert to pending';
+  } else { icon = '↺'; title = 'Revert to pending'; }
+
+  return {
+    top: el('div', { class: 'bm-action bm-toggle' },
+      el('button', { class: 'ghost', title, on: { click: onAdvance } }, icon),
+    ),
+    bottom: el('div', { class: 'bm-action bm-status' },
+      el('span', { class: 'status ' + currentStatus }, currentStatus),
+    ),
+  };
 }
 
 async function refresh() {
@@ -1012,30 +1043,35 @@ function renderGroupstageMatchRow(g, m) {
   if (isBye) {
     return el('div', { class: 'bracket-match match-bye' },
       seedCell,
-      el('div', { class: 'bm-rows' },
+      el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.readOnly}` },
         el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p1))),
-        el('div', { class: 'bm-row muted' }, el('div', { class: 'bm-name' }, nameOf(m.p2))),
+        el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p2))),
       ),
-      el('div', { class: 'bm-actions muted' }, 'bye'),
     );
   }
 
   if (m.walkover) {
-    const rows = buildWalkoverRows(nameOf(m.p1), nameOf(m.p2), m.walkover);
+    const rows = buildWalkoverRows(nameOf(m.p1), nameOf(m.p2), m.walkover, 1);
     return el('div', { class: 'bracket-match walkover ' + m.status },
       seedCell,
-      el('div', { class: 'bm-rows' }, ...rows),
-      el('div', { class: 'bm-actions' },
-        el('span', { class: 'status ' + m.status }, m.status),
-      ),
+      el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.walkoverGrp}` }, ...rows),
+      el('span', { class: 'status ' + m.status, style: 'padding:0.3rem 0.6rem' }, m.status),
     );
   }
 
   if (isEditing) {
     const { p1Cells, p2Cells } = buildScoreInputs(m.score);
-    const rows = el('div', { class: 'bm-rows' },
-      el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p1)), ...p1Cells),
-      el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p2)), ...p2Cells),
+    const rows = el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.readOnly} auto` },
+      el('div', { class: 'bm-row' },
+        el('div', { class: 'bm-name' }, nameOf(m.p1)),
+        ...p1Cells,
+        el('div', { class: 'bm-action' }, el('button', { on: { click: save } }, 'Save')),
+      ),
+      el('div', { class: 'bm-row' },
+        el('div', { class: 'bm-name' }, nameOf(m.p2)),
+        ...p2Cells,
+        el('div', { class: 'bm-action' }, el('button', { class: 'ghost', on: { click: cancel } }, 'Cancel')),
+      ),
     );
     attachScoreValidation(rows);
 
@@ -1049,14 +1085,7 @@ function renderGroupstageMatchRow(g, m) {
       editingGroupstageMatches.delete(m.id);
       renderGroupstage();
     }
-    return el('div', { class: 'bracket-match ' + m.status },
-      seedCell,
-      rows,
-      el('div', { class: 'bm-actions' },
-        el('button', { on: { click: save } }, 'Save'),
-        el('button', { class: 'ghost', on: { click: cancel } }, 'Cancel'),
-      ),
-    );
+    return el('div', { class: 'bracket-match ' + m.status }, seedCell, rows);
   }
 
   const { p1Cells, p2Cells } = buildReadOnlySetCells(m.score);
@@ -1073,26 +1102,28 @@ function renderGroupstageMatchRow(g, m) {
   })();
   const p1Win = winnerSide === 'p1', p2Win = winnerSide === 'p2';
   const canEdit = m.status === 'done';
+  const editCell = canEdit
+    ? el('div', { class: 'bm-action' }, el('button', { class: 'ghost', on: { click: () => {
+        editingGroupstageMatches.add(m.id);
+        renderGroupstage();
+      } } }, 'Edit'))
+    : el('div', { class: 'bm-action' });
+
   return el('div', { class: 'bracket-match ' + m.status },
     seedCell,
-    el('div', { class: 'bm-rows' },
+    el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.readOnly} auto` },
       el('div', { class: 'bm-row' + (p1Win ? ' winner' : '') },
         el('div', { class: 'bm-name' + (p1Win ? ' winner' : '') }, nameOf(m.p1)),
         ...p1Cells,
+        editCell,
       ),
       el('div', { class: 'bm-row' + (p2Win ? ' winner' : '') },
         el('div', { class: 'bm-name' + (p2Win ? ' winner' : '') }, nameOf(m.p2)),
         ...p2Cells,
+        el('div', { class: 'bm-action bm-status' },
+          el('span', { class: 'status ' + m.status }, m.status),
+        ),
       ),
-    ),
-    el('div', { class: 'bm-actions' },
-      el('span', { class: 'status ' + m.status }, m.status),
-      canEdit
-        ? el('button', { class: 'ghost', on: { click: () => {
-            editingGroupstageMatches.add(m.id);
-            renderGroupstage();
-          } } }, 'Edit')
-        : null,
     ),
   );
 }
@@ -1468,60 +1499,80 @@ function renderKnockoutMatchRow(kb, roundNo, slot) {
   }
 
   const id = `ko-match-${kb.id}-${roundNo}-${slot.slot}`;
+  const courtInput = el('input', { class: 'court-input', value: slot.court ?? '', placeholder: 'Court' });
 
   if (slot.walkover) {
+    const woRows = buildWalkoverRows(nameOf(slot.p1), nameOf(slot.p2), slot.walkover, 1);
     const winnerName = slot.walkover === 'p1' ? nameOf(slot.p1) : nameOf(slot.p2);
-    const rows = buildWalkoverRows(nameOf(slot.p1), nameOf(slot.p2), slot.walkover);
     return el('div', { class: 'bracket-match walkover', id },
-      el('div', { class: 'bm-seed' }, slot.court || ''),
-      el('div', { class: 'bm-rows' }, ...rows),
-      el('div', { class: 'bm-actions' },
-        el('span', { class: 'walkover-note' }, `walkover — ${winnerName} wins`),
-        el('button', { class: 'ghost', title: 'Clear walkover', on: { click: clearWalkover } }, 'Undo'),
+      el('div', { class: 'bm-seed bm-court' }, courtInput,
+        el('button', { class: 'ghost bm-remove', title: 'Clear walkover', on: { click: clearWalkover } }, '↺'),
       ),
+      el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.walkoverGrp}` }, ...woRows),
+      el('span', { class: 'walkover-note', style: 'padding:0.3rem 0.6rem' }, `walkover — ${winnerName} wins`),
     );
   }
 
   const { p1Cells, p2Cells } = buildScoreInputs(slot.score);
   const p1Win = slot.winner && slot.winner === slot.p1;
   const p2Win = slot.winner && slot.winner === slot.p2;
-  const rows = el('div', { class: 'bm-rows' },
-    el('div', { class: 'bm-row' + (p1Win ? ' winner' : '') },
-      el('div', { class: 'bm-name' + (p1Win ? ' winner' : '') }, nameOf(slot.p1)),
-      ...p1Cells,
-    ),
-    el('div', { class: 'bm-row' + (p2Win ? ' winner' : '') },
-      el('div', { class: 'bm-name' + (p2Win ? ' winner' : '') }, nameOf(slot.p2)),
-      ...p2Cells,
-    ),
-  );
-  attachScoreValidation(rows);
-  const courtInput = el('input', { class: 'court-input', value: slot.court ?? '', placeholder: 'Court' });
 
-  async function markLive() {
+  let rows = null;
+  async function advance() {
+    // KO toggle only swaps pending ↔ live; the "done" state comes from the
+    // Win-for buttons in column 2 (a KO must have a winner before completing).
+    const next = slot.status === 'pending' ? 'live' : 'pending';
     await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
-      score: readScoreFromContainer(rows), status: 'live', court: courtInput.value,
+      score: readScoreFromContainer(rows), status: next, court: courtInput.value,
     });
     await refresh();
   }
   async function winFor(playerId) {
+    if (!playerId) return;
     await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
       score: readScoreFromContainer(rows), winner: playerId, court: courtInput.value,
     });
     await refresh();
   }
 
+  const toggle = statusToggleCells(slot.status, false, advance);
+  const winForCell = (pid) => el('div', { class: 'bm-action bm-winfor' },
+    el('button', {
+      title: pid ? `Win for ${nameOf(pid)}` : '',
+      ...(pid ? {} : { disabled: true }),
+      on: { click: () => winFor(pid) },
+    }, '✓'),
+  );
+  const woCell = (side, pid) => el('div', { class: 'bm-action bm-wo' },
+    el('button', {
+      class: 'ghost',
+      title: pid ? `Walkover — ${nameOf(pid)} wins` : '',
+      ...(pid ? {} : { disabled: true }),
+      on: { click: () => setWalkover(side) },
+    }, 'WO'),
+  );
+
+  rows = el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.koActions}` },
+    el('div', { class: 'bm-row' + (p1Win ? ' winner' : '') },
+      el('div', { class: 'bm-name' + (p1Win ? ' winner' : '') }, nameOf(slot.p1)),
+      ...p1Cells,
+      toggle.top,
+      winForCell(slot.p1),
+      woCell('p1', slot.p1),
+    ),
+    el('div', { class: 'bm-row' + (p2Win ? ' winner' : '') },
+      el('div', { class: 'bm-name' + (p2Win ? ' winner' : '') }, nameOf(slot.p2)),
+      ...p2Cells,
+      toggle.bottom,
+      winForCell(slot.p2),
+      woCell('p2', slot.p2),
+    ),
+  );
+  attachScoreValidation(rows);
+
   return el('div', { class: 'bracket-match ' + slot.status, id },
     el('div', { class: 'bm-seed bm-court' }, courtInput),
     rows,
-    el('div', { class: 'bm-actions' },
-      el('button', { class: 'ghost', title: 'Mark live', on: { click: markLive } }, '▶'),
-      el('button', { title: `Win for ${nameOf(slot.p1)}`, on: { click: () => winFor(slot.p1) } }, `Win ${nameOf(slot.p1)}`),
-      el('button', { title: `Win for ${nameOf(slot.p2)}`, on: { click: () => winFor(slot.p2) } }, `Win ${nameOf(slot.p2)}`),
-      slot.p1 ? el('button', { class: 'ghost', title: `Walkover — ${nameOf(slot.p1)} wins`, on: { click: () => setWalkover('p1') } }, 'WO ◀') : null,
-      slot.p2 ? el('button', { class: 'ghost', title: `Walkover — ${nameOf(slot.p2)} wins`, on: { click: () => setWalkover('p2') } }, 'WO ▶') : null,
-      el('span', { class: 'status ' + slot.status }, slot.status),
-    ),
   );
 }
 
@@ -1529,11 +1580,10 @@ function renderMatchRow(g, m) {
   if (m.p2 === '__bye__') {
     return el('div', { class: 'bracket-match match-bye' },
       el('div', { class: 'bm-seed' }, ''),
-      el('div', { class: 'bm-rows' },
+      el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.readOnly}` },
         el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p1))),
-        el('div', { class: 'bm-row muted' }, el('div', { class: 'bm-name' }, '— BYE')),
+        el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, '— BYE')),
       ),
-      el('div', { class: 'bm-actions muted' }, 'bye'),
     );
   }
 
@@ -1546,50 +1596,73 @@ function renderMatchRow(g, m) {
     await refresh();
   }
 
+  const courtInput = el('input', { class: 'court-input', value: m.court ?? '', placeholder: 'Court' });
+
   if (m.walkover) {
     const winnerName = m.walkover === 'p1' ? nameOf(m.p1) : nameOf(m.p2);
-    const rows = buildWalkoverRows(nameOf(m.p1), nameOf(m.p2), m.walkover);
+    const woRows = buildWalkoverRows(nameOf(m.p1), nameOf(m.p2), m.walkover, 1);
     return el('div', { class: 'bracket-match walkover' },
-      el('div', { class: 'bm-seed' }, m.court || ''),
-      el('div', { class: 'bm-rows' }, ...rows),
-      el('div', { class: 'bm-actions' },
-        el('span', { class: 'walkover-note' }, `walkover — ${winnerName} wins`),
-        el('button', { class: 'ghost', title: 'Clear walkover', on: { click: clearWalkover } }, 'Undo'),
+      el('div', { class: 'bm-seed bm-court' }, courtInput,
+        el('button', { class: 'ghost bm-remove', title: 'Clear walkover', on: { click: clearWalkover } }, '↺'),
       ),
+      el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.walkoverGrp}` },
+        ...woRows,
+      ),
+      el('span', { class: 'walkover-note', style: 'padding:0.3rem 0.6rem' }, `walkover — ${winnerName} wins`),
     );
   }
 
   const { p1Cells, p2Cells } = buildScoreInputs(m.score);
-  const rows = el('div', { class: 'bm-rows' },
-    el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p1)), ...p1Cells),
-    el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p2)), ...p2Cells),
-  );
-  attachScoreValidation(rows);
-  const courtInput = el('input', { class: 'court-input', value: m.court ?? '', placeholder: 'Court' });
+
+  // Closure refs so the action handlers can read the latest score input
+  // values when the operator clicks (rows is assigned below).
+  let rows = null;
 
   async function save(status) {
     const score = readScoreFromContainer(rows);
     await patch(`/api/groups/${g.id}/matches/${m.id}`, { score, status, court: courtInput.value });
     await refresh();
   }
-
+  async function advance() {
+    const next = { pending: 'live', live: 'done', done: 'pending' }[m.status] ?? 'live';
+    await save(next);
+  }
   async function remove() {
     if (!confirm(`Remove ${nameOf(m.p1)} vs ${nameOf(m.p2)}?`)) return;
     await del(`/api/groups/${g.id}/matches/${m.id}`);
     await refresh();
   }
 
-  return el('div', { class: 'bracket-match ' + m.status },
-    el('div', { class: 'bm-seed bm-court' }, courtInput),
-    rows,
-    el('div', { class: 'bm-actions' },
-      el('button', { class: 'ghost', title: 'Mark live', on: { click: () => save('live') } }, '▶'),
-      el('button', { title: 'Mark done', on: { click: () => save('done') } }, '✓'),
-      el('button', { class: 'ghost', title: `Walkover — ${nameOf(m.p1)} wins`, on: { click: () => setWalkover('p1') } }, 'WO ◀'),
-      el('button', { class: 'ghost', title: `Walkover — ${nameOf(m.p2)} wins`, on: { click: () => setWalkover('p2') } }, 'WO ▶'),
-      el('span', { class: 'status ' + m.status }, m.status),
-      el('button', { class: 'ghost remove-match', title: 'Remove match', on: { click: remove } }, '✕'),
+  const toggle = statusToggleCells(m.status, true, advance);
+  const p1WO = el('div', { class: 'bm-action bm-wo' },
+    el('button', { class: 'ghost', title: `Walkover — ${nameOf(m.p1)} wins`, on: { click: () => setWalkover('p1') } }, 'WO'),
+  );
+  const p2WO = el('div', { class: 'bm-action bm-wo' },
+    el('button', { class: 'ghost', title: `Walkover — ${nameOf(m.p2)} wins`, on: { click: () => setWalkover('p2') } }, 'WO'),
+  );
+
+  rows = el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.groupActions}` },
+    el('div', { class: 'bm-row' },
+      el('div', { class: 'bm-name' }, nameOf(m.p1)),
+      ...p1Cells,
+      toggle.top,
+      p1WO,
     ),
+    el('div', { class: 'bm-row' },
+      el('div', { class: 'bm-name' }, nameOf(m.p2)),
+      ...p2Cells,
+      toggle.bottom,
+      p2WO,
+    ),
+  );
+  attachScoreValidation(rows);
+
+  return el('div', { class: 'bracket-match ' + m.status },
+    el('div', { class: 'bm-seed bm-court' },
+      courtInput,
+      el('button', { class: 'ghost bm-remove', title: 'Remove match', on: { click: remove } }, '✕'),
+    ),
+    rows,
   );
 }
 
@@ -2085,9 +2158,10 @@ function renderBracketSlot(kb, roundNo, slot) {
   const seeds = [seedFor(slot.p1), seedFor(slot.p2)].filter(n => typeof n === 'number');
   const seedBadge = seeds.length ? String(Math.min(...seeds)) : '';
 
-  let rows;
+  let rows, cols;
   if (isWalkover) {
-    rows = buildWalkoverRows(a, b, slot.winner === slot.p1 ? 'p1' : 'p2');
+    rows = buildWalkoverRows(a, b, slot.winner === slot.p1 ? 'p1' : 'p2', 1);
+    cols = GRID.walkoverRO;
   } else {
     const { p1Cells, p2Cells } = buildReadOnlySetCells(slot.score);
     rows = [
@@ -2100,6 +2174,7 @@ function renderBracketSlot(kb, roundNo, slot) {
         ...p2Cells,
       ),
     ];
+    cols = GRID.readOnly;
   }
 
   const classes = ['bracket-match', slot.status || 'pending', isWalkover ? 'walkover' : '', clickable ? 'clickable' : '']
@@ -2109,7 +2184,7 @@ function renderBracketSlot(kb, roundNo, slot) {
     ...(clickable ? { title: 'Open in Matches tab', on: { click: () => jumpToKoMatch(kb.id, roundNo, slot.slot, slot.status === 'done') } } : {}),
   },
     el('div', { class: 'bm-seed' }, seedBadge),
-    el('div', { class: 'bm-rows' }, ...rows),
+    el('div', { class: 'bm-rows', style: `grid-template-columns: ${cols}` }, ...rows),
   );
 }
 

@@ -356,8 +356,11 @@ details.matches-section > summary {
 }
 
 /* Shared "bracket-match" grid used for group matches (both tabs) and bracket
-   slots. Two rows per match (one per player), each with a name cell + N set
-   cells. Mirrors result-site .bracket-match so layouts line up. */
+   slots. Two rows per match (one per player), each row built from cells that
+   line up via CSS grid on .bm-rows. .bm-row uses display:contents so the
+   .bm-name / .bm-set / .bm-action children become direct grid items and
+   columns auto-align across both player rows. Width shrinks to content so
+   matches don't stretch to fill the screen. */
 .bracket-match {
   position: relative;
   display: flex;
@@ -367,6 +370,8 @@ details.matches-section > summary {
   border-radius: 4px;
   font-size: 0.85rem;
   margin: 0.4rem 0;
+  width: max-content;
+  max-width: 100%;
 }
 .bracket-match.live { background: #fef3c7; }
 .bracket-match.walkover { background: #fff7ed; }
@@ -383,38 +388,49 @@ details.matches-section > summary {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.bm-seed.bm-court { padding: 0.2rem 0.3rem; }
-.bm-seed input.court-input { width: 4rem; padding: 0.15rem 0.3rem; font-size: 0.8rem; }
-.bm-rows { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.bm-row {
-  display: flex;
-  align-items: stretch;
-  flex: 1;
-  min-height: 1.6rem;
-  border-bottom: 1px solid var(--border);
+.bm-seed.bm-court {
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.2rem 0.25rem;
 }
-.bm-row:last-child { border-bottom: none; }
+.bm-seed input.court-input { width: 3.5rem; padding: 0.15rem 0.3rem; font-size: 0.8rem; }
+.bm-seed .bm-remove {
+  font-size: 0.7rem;
+  padding: 0 0.4rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.bm-seed .bm-remove:hover { color: var(--red); border-color: var(--border); }
+.bm-rows {
+  display: grid;
+  grid-auto-rows: minmax(1.6rem, auto);
+  flex: 0 0 auto;
+}
+.bm-row { display: contents; }
 .bm-name {
-  flex: 1;
   padding: 0.2rem 0.5rem;
-  min-width: 6rem;
+  min-width: 7rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: flex;
   align-items: center;
+  border-bottom: 1px solid var(--border);
 }
+.bm-row:last-child .bm-name { border-bottom: none; }
 .bm-name.winner { font-weight: 700; }
 .bm-set {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.4rem;
   padding: 0.1rem 0.15rem;
   border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
+.bm-row:last-child .bm-set { border-bottom: none; }
 .bm-set.set-won { color: var(--fg); font-weight: 600; }
 .bm-set.bm-input { padding: 0.1rem; }
 .bm-set input.score {
@@ -435,27 +451,33 @@ details.matches-section > summary {
   justify-content: flex-end;
   padding: 0.2rem 0.5rem;
   border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   font-style: italic;
   color: var(--muted);
 }
-.bm-actions {
+.bm-row:last-child .bm-walkover { border-bottom: none; }
+
+.bm-action {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.4rem;
+  justify-content: center;
+  padding: 0.15rem 0.3rem;
   border-left: 1px solid var(--border);
-  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  min-width: 2rem;
 }
-.bm-actions .status {
+.bm-row:last-child .bm-action { border-bottom: none; }
+.bm-action button { padding: 0.15rem 0.4rem; font-size: 0.8rem; }
+.bm-action.bm-toggle button { font-weight: 700; }
+.bm-action.bm-winfor button { padding: 0.15rem 0.55rem; }
+.bm-action.bm-status .status {
   font-size: 0.7rem;
   text-transform: uppercase;
   color: var(--muted);
+  letter-spacing: 0.03em;
 }
-.bm-actions .status.done { color: var(--green); }
-.bm-actions .status.live { color: var(--amber); }
-.bm-actions button { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
-.bm-actions .remove-match { color: var(--muted); padding: 0.1rem 0.4rem; }
-.bm-actions .remove-match:hover { color: #dc2626; }
+.bm-action.bm-status .status.done { color: var(--green); }
+.bm-action.bm-status .status.live { color: var(--amber); }
 .bracket-match.match-bye .bm-name { color: var(--muted); font-style: italic; }
 
 @keyframes match-flash {
