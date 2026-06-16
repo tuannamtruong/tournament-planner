@@ -55,9 +55,9 @@ Preview the spectator view against live data at `http://localhost:37325/view/` �
 
 ### Operatorional
 
-1. Operator edits in the admin UI locally → API mutates `tournament.json` → `pendingChanges` counter bumps.
-2. Header status light shows 🟡 pending.
-3. Operator clicks **Publish** → admin derives `version.json` / `groups.json` / `knockout.json` and PUTs them to S3 in parallel.
+1. Operator edits in the admin UI locally → API mutates `tournament.json`, appends a pre-mutation snapshot to `admin/data/pending.json` → `pendingChanges` counter (= log length) bumps.
+2. Header status light shows 🟡 pending. The **Pending** tab lists every unpublished change.
+3. Operator clicks **Publish** → admin derives `version.json` / `groups.json` / `knockout.json` and PUTs them to S3 in parallel; the pending log is cleared on success.
 4. Spectator browsers see the change the next time they refresh or reopen the page.
 
 ### Teardown

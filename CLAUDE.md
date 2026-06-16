@@ -29,6 +29,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
 - **Pairings** — for round-robin / Swiss groups, one button generates the next round respecting history (Swiss won't repeat opponents; round-robin walks the circle-method schedule).
 - **Scoring** — best-of-3 set scores per match, with court label, **▶ live** / **✓ done** buttons that auto-stamp `startedAt` / `finishedAt`. For `manual` groups, an inline form adds matches between any two members in any round.
 - **Bracket** — create a 4/8/16/32-slot knockout, seeded from participants' `seed` field (standard 1-vs-N-, 4-vs-N-3-style positions). Enter set scores in a slot and click the winner; the winner is auto-propagated to the next round's slot.
+- **Pending** — every state-changing API call appends an entry to `admin/data/pending.json` along with a full pre-mutation snapshot of `tournament.json`. The tab lists those entries newest-first with a server-rendered summary.
 - **Settings** — rename the tournament. Manual **Push backup snapshot** button. Live JSON dump of the publish-status object for debugging.
 - **Header status light** — 🟢 synced / 🟡 pending or pushing / 🟡 "AWS not configured" / 🔴 push failed (no auto-retry — click again). **Publish** button next to it.
 

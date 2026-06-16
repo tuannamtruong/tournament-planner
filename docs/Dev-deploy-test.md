@@ -17,7 +17,7 @@ pnpm dev              # tsx watch admin/src/index.ts → http://localhost:37325
 # admin edit. No S3, no fixture files to maintain.
 
 # Tests
-pnpm test             # vitest — pairing + standings (13 tests)
+pnpm test             # vitest — pairing + standings (17 tests across 4 files)
 
 # Screenshot the result-site against a hermetic seeded dataset
 # (used to catch visual regressions in the group-stage tree and bracket
@@ -112,11 +112,14 @@ operator edits a score in the browser
 PATCH /api/groups/:gid/matches/:mid
         │
         ▼
-storage.mutate(): validate → write tmp file → rename → cache
+storage.mutate():
+  clone current state (= pre-mutation snapshot)
+  validate → write tmp file → rename tournament.json → cache
+  append { snapshot, action, target, payload } to admin/data/pending.json
         │
         ▼
-Fastify onResponse hook → publish.schedulePublish()
-        │  (just bumps status.pendingChanges; no push scheduled)
+status.pendingChanges (= length of pending log) increases by 1
+        │
         ▼
 operator clicks "Publish" → POST /api/publish/force
         │
@@ -126,11 +129,13 @@ publish.runPublish():
   derive { version.json, groups.json, knockout.json }
   Promise.all PUT to S3 with Cache-Control headers
         │
-        ├─ success → status.lastSuccess = now; pendingChanges -= snapshot
+        ├─ success → status.lastSuccess = now; pending.json cleared
         └─ failure → status.lastError; throws 502 (no auto-retry)
 ```
 
-**When Wi-Fi drops:** edits keep working (local JSON), `pendingChanges` increments, the light shows pending. When connectivity returns, the operator clicks **Publish**; each push is a full snapshot of the current views, so no per-edit queue is needed.
+**When Wi-Fi drops:** edits keep working (local JSON), `pendingChanges` increments, the light shows pending. When connectivity returns, the operator clicks **Publish**; each push is a full snapshot of the current views, so the publisher doesn't need a per-edit queue.
+
+**Undo:** the pending log doubles as an undo journal. The **Pending** tab lists every unpublished mutation with a human summary; **Revert from here** restores `tournament.json` to that entry's pre-mutation snapshot and discards every change after it (linear undo). **Revert all** restores the last-published baseline. The log is cleared by a successful Publish.
 
 **Backup pushes (separate path):** the Settings tab has a manual **Push backup snapshot** button that PUTs a full `tournament.json` to `s3://$BUCKET/private/backups/tournament-<ts>.json` via `publish.pushBackup()`. The bucket policy denies public read on `private/*`. Locally, `storage.startLocalSnapshots()` writes a snapshot to `admin/data/backups/` every 5 minutes and keeps the last 50 — that's the disk-side safety net.
 
@@ -157,7 +162,10 @@ aws cloudformation delete-stack --stack-name tp-result
 |---|---|
 | `admin/src/pairing/round_robin.test.ts` | empty input; even N → N-1 rounds, complete schedule, no duplicates; odd N → N rounds with one bye per round and per player; determinism |
 | `admin/src/pairing/swiss.test.ts` | top-with-next pairing; rematch avoidance; bye picks lowest unbyed; fallback when everyone has a bye; throws on impossible board |
+| `admin/src/pairing/index.test.ts` | withdrawal handling in `generateNextRound`: withdrawn players are skipped without breaking the schedule |
 | `admin/src/standings.test.ts` | wins-first ordering; tied-on-wins broken by set diff; head-to-head as final tiebreaker; pending matches ignored |
+
+End-to-end smoke runs out of band via `node .claude/skills/dev/driver.mjs` — it boots a real Fastify on a random port against a temp `TP_DATA_FILE` and walks the full lifecycle (rename → participants → group → next-round → score → bracket → /view JSONs → pending log + linear-undo). Run it before touching anything in `admin/src/routes/`.
 
 Add new tests when changing pairing or standings logic. Other modules (CRUD routes, UI) are fine without tests.
 

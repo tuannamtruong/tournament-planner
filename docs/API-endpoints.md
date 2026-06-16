@@ -1,6 +1,6 @@
 ## HTTP API
 
-All responses are JSON. State-changing requests bump `pendingChanges` via a Fastify `onResponse` hook (except `/api/publish/*` itself); the actual S3 push is operator-triggered through `POST /api/publish/force`.
+All responses are JSON. Every state-changing request goes through `storage.mutate()`, which appends a pre-mutation snapshot + audit entry to `admin/data/pending.json`; the publish-status `pendingChanges` is derived from the log's length. The actual S3 push is operator-triggered through `POST /api/publish/force`, which wipes the log on success.
 
 ### State
 - `GET    /api/state` — full tournament JSON
@@ -28,9 +28,13 @@ All responses are JSON. State-changing requests bump `pendingChanges` via a Fast
 - `DELETE /api/knockouts/:kid`
 
 ### Publish
-- `GET    /api/publish/status` — `{ configured, lastSuccess, lastError, pendingChanges, inFlight }`
-- `POST   /api/publish/force` — pushes synchronously (`forcePush()` → `runPublish()`); 502 with error message on failure. No automatic retry — caller re-tries by clicking again.
+- `GET    /api/publish/status` — `{ configured, lastSuccess, lastError, pendingChanges, inFlight }`. `pendingChanges` is read fresh from the on-disk pending log on each call, so it survives a server restart.
+- `POST   /api/publish/force` — pushes synchronously (`forcePush()` → `runPublish()`); 502 with error message on failure. No automatic retry — caller re-tries by clicking again. On success, also clears `admin/data/pending.json`.
 - `POST   /api/publish/backup` — manual push of `tournament.json` snapshot to `private/backups/`
+
+### Pending changes (undo)
+- `GET    /api/pending` — `{ baselineAt, entries: [{ index, ts, action, target, tab, summary }, ...] }`. One entry per unpublished mutation in append order. `summary` is rendered server-side against the entry's pre-mutation snapshot, so deleted/renamed entities still display real names. Snapshot blobs are **not** returned in the response (they can be many KB each).
+- `POST   /api/pending/revert` `{ index }` **or** `{ mode: 'all' }` — linear undo: restores `tournament.json` to the snapshot at `index` (or `0` for `'all'`) and truncates the pending log accordingly. Every later change is discarded. 4xx on out-of-range index or empty log.
 
 ### Local viewer (dev preview of the result site)
 - `GET    /view/`, `/view/index.html`, `/view/knockout.html`, `/view/assets/*` — static mount of `result-site/`
