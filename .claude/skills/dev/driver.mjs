@@ -254,7 +254,41 @@ async function smoke() {
   // 8. Publish status — should be `configured: false` since TP_BUCKET is unset.
   const status = await api('GET', '/api/publish/status');
   assert(status.configured === false, 'expected publish to be unconfigured (TP_BUCKET="")');
+  assert(status.pendingChanges > 0, `pendingChanges should reflect prior mutations (got ${status.pendingChanges})`);
   console.log(`✓ publish status: ${JSON.stringify(status)}`);
+
+  // 9. Pending-changes log — every mutation above should have appended an
+  // entry. Snapshot blobs are stripped from GET so the response stays small.
+  const pendingBefore = await api('GET', '/api/pending');
+  assert(pendingBefore.entries.length === status.pendingChanges, 'pending entries should match status counter');
+  assert(!('snapshot' in pendingBefore.entries[0]), 'GET /api/pending must strip snapshot blobs');
+  assert(pendingBefore.entries.some(e => e.action === 'add_participant'), 'pending log should record add_participant');
+  console.log(`✓ pending log has ${pendingBefore.entries.length} entries (snapshots stripped)`);
+
+  // 10. Linear undo: revert from index 1 → discard entries 1..N, keep entry 0 only.
+  await api('POST', '/api/pending/revert', { index: 1 });
+  const pendingAfter = await api('GET', '/api/pending');
+  assert(pendingAfter.entries.length === 1, `revert(1) should leave 1 entry (got ${pendingAfter.entries.length})`);
+  const statusAfter = await api('GET', '/api/publish/status');
+  assert(statusAfter.pendingChanges === 1, `pendingChanges == 1 after revert (got ${statusAfter.pendingChanges})`);
+  const stateAfter = await api('GET', '/api/state');
+  assert(stateAfter.participants.length === 0 && stateAfter.groups.length === 0 && stateAfter.knockouts.length === 0,
+         'revert from index 1 should restore state to just-after-the-rename (no participants/groups/brackets yet)');
+  console.log(`✓ revert from index 1 collapsed state back to just-after-rename`);
+
+  // 11. Revert all → snapshot at index 0 = the seed state before the rename.
+  await api('POST', '/api/pending/revert', { mode: 'all' });
+  const pendingEmpty = await api('GET', '/api/pending');
+  assert(pendingEmpty.entries.length === 0, 'revert all should empty the pending log');
+  const baseline = await api('GET', '/api/state');
+  assert(baseline.tournament.name === 'Driver Run', 'revert all should restore the seed tournament name');
+  console.log(`✓ revert all restored baseline state`);
+
+  // 12. Out-of-range revert errors cleanly (no entries left).
+  let threw = false;
+  try { await api('POST', '/api/pending/revert', { index: 0 }); } catch { threw = true; }
+  assert(threw, 'revert on empty log should 4xx');
+  console.log(`✓ revert on empty log rejected`);
 
   console.log(`\n✓ all smoke checks passed`);
 }
