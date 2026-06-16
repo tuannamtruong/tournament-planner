@@ -18,8 +18,8 @@ set -euo pipefail
 NODE_VERSION="${NODE_VERSION:-20.18.1}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE="$HERE/.pack-cache"
-STAGE="$HERE/dist/tournament-planner-portable"
-ZIP_OUT="$HERE/dist/tournament-planner-portable-win-x64.zip"
+STAGE="$HERE/dist/tp-portable"
+ZIP_OUT="$HERE/dist/tp-portable-w64.zip"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  • %s\n' "$*"; }
@@ -53,6 +53,10 @@ cp -r "$HERE/admin" "$STAGE/admin"
 cp -r "$HERE/result-site" "$STAGE/result-site"
 cp    "$HERE/package.json" "$HERE/package-lock.json" "$HERE/tsconfig.json" "$STAGE/"
 cp    "$HERE/.env.example" "$STAGE/"
+if [ -f "$HERE/.env" ]; then
+  info "bundling .env (contains AWS credentials — do not share this zip publicly)"
+  cp "$HERE/.env" "$STAGE/.env"
+fi
 
 # Drop dev-only stuff that may have been copied with admin/
 rm -rf "$STAGE/admin/data"                       # created fresh on first run
@@ -73,6 +77,24 @@ if [ -n "$ESBV" ]; then
   info "removing unused linux esbuild binary"
   rm -rf "$STAGE/node_modules/@esbuild/linux-x64"
 fi
+
+# --- 3b. Prune dev-only / declaration-only files ------------------------------
+# Windows has a 260-char MAX_PATH limit. AWS SDK ships very deep dist-types/
+# trees full of .d.ts files that aren't needed at runtime — they push the
+# longest paths in the bundle past 260 chars once the operator extracts into
+# any non-trivial folder, and Windows Explorer silently skips the overflowing
+# entries (often abandoning the rest of the extraction with it).
+info "pruning .d.ts / dist-types / sourcemaps from node_modules"
+find "$STAGE/node_modules" -type f \( \
+    -name '*.d.ts' -o -name '*.d.cts' -o -name '*.d.mts' \
+    -o -name '*.map' \
+  \) -delete
+find "$STAGE/node_modules" -type d -name 'dist-types' -prune -exec rm -rf {} +
+# Empty dirs left behind after the file sweep
+find "$STAGE/node_modules" -type d -empty -delete
+
+LONGEST=$(find "$STAGE" -printf '%P\n' | awk '{ print length($0), $0 }' | sort -rn | awk 'NR==1 { print; exit }' || true)
+info "longest in-bundle path after prune: $LONGEST"
 
 # --- 4. Windows launcher ------------------------------------------------------
 info "writing start.bat"
