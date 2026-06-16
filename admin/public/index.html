@@ -96,9 +96,9 @@
                 <input name="playersPerGroup" type="number" min="2" value="4" style="width: 4rem">
               </label>
               <button type="button" id="auto-generate-groups">Generate groups and participants</button>
+              <p id="add-group-error" class="form-error" hidden></p>
             </form>
-            <p class="hint">Set category + one or more classes to restrict who can join. Leave classes empty to allow any.</p>
-            <p class="hint">When generating groups with <strong>no class selected</strong>, eligible participants are split by their own class — each generated group gets exactly one class, reflected in its name (e.g. <code>MS-A 1</code>).</p>
+            <p class="hint">Pick one category and at least one class. Only participants matching both can join.</p>
           </div>
         </details>
         <details class="card collapsible-card groups-bulk">

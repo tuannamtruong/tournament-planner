@@ -6,8 +6,8 @@ import { Score, MatchStatus, Walkover, type Bracket, type BracketRound, type Bra
 
 const CreateBracket = z.object({
   name: z.string().min(1),
-  category: z.string().default(''),
-  classes: z.array(z.string()).default([]),
+  category: z.string().min(1),
+  classes: z.array(z.string()).min(1),
   size: z.number().int().min(2),         // requested player count; rounded up to next power of 2
   seeds: z.array(z.string()).default([]), // ordered participant IDs; gaps become BYE
 });

@@ -341,6 +341,11 @@ input.score.invalid {
 }
 input.score.invalid:focus { outline-color: var(--red); }
 
+#add-group select.invalid,
+#add-group input.invalid { border-color: var(--red); background: #fef2f2; }
+#add-group fieldset.invalid { border-color: var(--red); background: #fef2f2; }
+.form-error { color: var(--red); font-size: 0.85rem; margin: 0.25rem 0 0; }
+
 details.matches-section { margin-bottom: 0.5rem; }
 details.matches-section > summary {
   font-weight: 600;

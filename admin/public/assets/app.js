@@ -707,24 +707,57 @@ function syncDefaultGroupName() {
   form.elements.name.value = defaultGroupName(category, classes);
 }
 
+function groupFormMissing() {
+  const { category, classes } = readGroupFormSelection($('#add-group'));
+  const missing = [];
+  if (!category) missing.push('category');
+  if (classes.length === 0) missing.push('classes');
+  return missing;
+}
+
+// Toggle .invalid styling on the category select / classes fieldset and write a
+// single-line hint into #add-group-error. Empty `missing` clears everything.
+function setGroupFormErrors(missing) {
+  const form = $('#add-group');
+  const errEl = $('#add-group-error');
+  form.elements.category.classList.toggle('invalid', missing.includes('category'));
+  form.querySelector('fieldset[data-name="classes"]')
+    .classList.toggle('invalid', missing.includes('classes'));
+  if (missing.length === 0) {
+    errEl.hidden = true;
+    errEl.textContent = '';
+    return;
+  }
+  const parts = [];
+  if (missing.includes('category')) parts.push('a category');
+  if (missing.includes('classes')) parts.push('at least one class');
+  errEl.textContent = `Pick ${parts.join(' and ')}.`;
+  errEl.hidden = false;
+}
+
 $('#add-group').addEventListener('change', (e) => {
   if (e.target.name === 'category' || e.target.name === 'classes') {
     syncDefaultGroupName();
+    // Only re-validate once an error is already showing — avoids marking
+    // fields red before the operator has tried to submit.
+    if (!$('#add-group-error').hidden) setGroupFormErrors(groupFormMissing());
   }
 });
 
 $('#add-group').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const missing = groupFormMissing();
+  if (missing.length > 0) { setGroupFormErrors(missing); return; }
   const fd = new FormData(e.target);
-  const classes = [...fd.getAll('classes')].map(String);
   await post('/api/groups', {
     name: fd.get('name'),
     mode: fd.get('mode'),
     category: fd.get('category') || '',
-    classes,
+    classes: [...fd.getAll('classes')].map(String),
     members: [],
   });
   e.target.reset();
+  setGroupFormErrors([]);
   await refresh();
   syncDefaultGroupName();
 });
@@ -771,7 +804,8 @@ $('#auto-generate-groups').addEventListener('click', async () => {
   const mode = fd.get('mode') || 'round_robin';
   const playersPerGroup = Number(fd.get('playersPerGroup') || 0);
 
-  if (!category) return alert('Pick a category first.');
+  const missing = groupFormMissing();
+  if (missing.length > 0) { setGroupFormErrors(missing); return; }
   if (!Number.isFinite(playersPerGroup) || playersPerGroup < 2) {
     return alert('Players per group must be at least 2.');
   }
@@ -2006,6 +2040,8 @@ function renderBracketWizard() {
 
   const createBtn = el('button', { on: { click: async () => {
     if (!w.name.trim()) return alert('Bracket name is required.');
+    if (!w.category) return alert('Pick a category.');
+    if (w.classes.length === 0) return alert('Pick at least one class.');
     if (w.seeds.length === 0) return alert('Add at least one seed.');
     try {
       await post('/api/knockouts', {

@@ -8,8 +8,8 @@ import { generateNextRound } from '../pairing/index.ts';
 const NewGroup = z.object({
   name: z.string().min(1),
   mode: GroupMode,
-  category: z.string().default(''),
-  classes: z.array(z.string()).default([]),
+  category: z.string().min(1),
+  classes: z.array(z.string()).min(1),
   members: z.array(z.string()).default([]),
 });
 

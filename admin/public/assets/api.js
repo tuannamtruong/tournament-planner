@@ -6,7 +6,13 @@ export async function api(method, path, body) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    let msg = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.message) msg = String(parsed.message);
+      else if (parsed?.error) msg = String(parsed.error);
+    } catch { /* not JSON — keep raw text */ }
+    throw new Error(msg);
   }
   return res.json();
 }

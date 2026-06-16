@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ZodError } from 'zod';
 import { startLocalSnapshots, dataFilePath, load } from './storage.ts';
 import { schedulePublish, getStatus, deriveViews } from './publish.ts';
 import { stateRoutes } from './routes/state.ts';
@@ -18,6 +19,33 @@ const RESULT_DIR = path.resolve(__dirname, '../../result-site');
 const app = Fastify({
   logger: true,
   bodyLimit: 2 * 1024 * 1024,  // 2 MB — generous for CSV pastes
+});
+
+const FIELD_LABEL: Record<string, string> = {
+  category: 'Category',
+  classes: 'Classes',
+  name: 'Name',
+  mode: 'Mode',
+  size: 'Size',
+  seeds: 'Seeds',
+  members: 'Members',
+};
+
+app.setErrorHandler((err, _req, reply) => {
+  if (err instanceof ZodError) {
+    const parts = err.errors.map((e) => {
+      const field = e.path.length ? String(e.path[0]) : 'request';
+      const label = FIELD_LABEL[field] ?? field;
+      if (e.code === 'too_small') {
+        if (e.type === 'string') return `${label} is required.`;
+        if (e.type === 'array') return `${label}: pick at least ${e.minimum}.`;
+        return `${label}: must be at least ${e.minimum}.`;
+      }
+      return `${label}: ${e.message}`;
+    });
+    return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: parts.join(' ') });
+  }
+  reply.send(err);
 });
 
 await app.register(fastifyStatic, { root: ADMIN_DIR, prefix: '/' });
