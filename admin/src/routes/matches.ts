@@ -2,12 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { mutate } from '../storage.ts';
-import { Score, MatchStatus } from '../schema.ts';
+import { Score, MatchStatus, Walkover } from '../schema.ts';
 
 const ScorePatch = z.object({
   score: Score.optional(),
   status: MatchStatus.optional(),
   court: z.string().optional(),
+  walkover: Walkover.optional(),
 });
 
 const NewManualMatch = z.object({
@@ -29,11 +30,19 @@ export async function matchRoutes(app: FastifyInstance) {
         for (const r of g.rounds) {
           const m = r.matches.find(m => m.id === mid);
           if (!m) continue;
+          const now = new Date().toISOString();
+          if (patch.walkover !== undefined) {
+            m.walkover = patch.walkover;
+            if (patch.walkover !== null) {
+              m.score = [];
+              m.status = 'done';
+              if (!m.finishedAt) m.finishedAt = now;
+            }
+          }
           if (patch.score !== undefined) m.score = patch.score;
           if (patch.court !== undefined) m.court = patch.court;
           if (patch.status !== undefined) {
             m.status = patch.status;
-            const now = new Date().toISOString();
             if (patch.status === 'live' && !m.startedAt) m.startedAt = now;
             if (patch.status === 'done' && !m.finishedAt) m.finishedAt = now;
           }
@@ -81,6 +90,7 @@ export async function matchRoutes(app: FastifyInstance) {
           p1: body.p1, p2: body.p2,
           court: body.court,
           score: [], status: 'pending',
+          walkover: null,
           startedAt: null, finishedAt: null,
         });
         return s;

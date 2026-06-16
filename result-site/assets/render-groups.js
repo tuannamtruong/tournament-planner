@@ -17,6 +17,14 @@ function scoreText(score) {
   return score.map(([a, b]) => `${a}-${b}`).join(', ');
 }
 
+function matchScoreCell(m) {
+  if (m.walkover) {
+    const winnerName = m.walkover === 'p1' ? m.p1 : m.p2;
+    return el('span', { class: 'score walkover' }, `walkover (${winnerName})`);
+  }
+  return el('span', { class: 'score' }, scoreText(m.score));
+}
+
 function matchCounts(g) {
   let total = 0, done = 0;
   for (const r of g.rounds || []) {
@@ -134,9 +142,11 @@ export function renderGroups(root, groups) {
             el('th', {}, 'Sets'),
             el('th', {}, 'Pts'),
           )),
-          el('tbody', {}, ...g.standings.map(s => el('tr', {},
+          el('tbody', {}, ...g.standings.map(s => el('tr', { class: s.withdrawn ? 'withdrawn' : '' },
             el('td', {}, s.rank),
-            el('td', {}, s.name),
+            el('td', {}, s.name,
+              s.withdrawn ? el('span', { class: 'badge wd' }, ' WD') : null,
+            ),
             el('td', {}, s.won),
             el('td', {}, s.lost),
             el('td', {}, `${s.setsWon}-${s.setsLost}`),
@@ -151,13 +161,14 @@ export function renderGroups(root, groups) {
       for (const r of g.rounds) {
         matchList.append(el('h3', {}, `Round ${r.roundNo}`));
         for (const m of r.matches) {
-          matchList.append(el('div', { class: 'match ' + m.status },
+          const classes = ['match', m.status, m.walkover ? 'walkover' : ''].filter(Boolean).join(' ');
+          matchList.append(el('div', { class: classes },
             el('span', { class: 'court muted' }, m.court || ''),
             el('span', { class: 'player' }, m.p1),
             el('span', { class: 'vs muted' }, 'vs'),
             el('span', { class: 'player' }, m.p2),
-            el('span', { class: 'score' }, scoreText(m.score)),
-            el('span', { class: 'status muted' }, m.status),
+            matchScoreCell(m),
+            el('span', { class: 'status muted' }, m.walkover ? 'walkover' : m.status),
           ));
         }
       }

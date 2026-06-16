@@ -11,7 +11,14 @@ const match = (
   score: [number, number][],
 ) => ({
   id, p1, p2, court: '', score,
-  status: 'done' as const, startedAt: null, finishedAt: null,
+  status: 'done' as const, walkover: null, startedAt: null, finishedAt: null,
+});
+
+const walkoverMatch = (
+  id: string, p1: string, p2: string, winner: 'p1' | 'p2',
+) => ({
+  id, p1, p2, court: '', score: [] as [number, number][],
+  status: 'done' as const, walkover: winner, startedAt: null, finishedAt: null,
 });
 
 describe('computeStandings', () => {
@@ -80,11 +87,52 @@ describe('computeStandings', () => {
         roundNo: 1,
         matches: [{
           id: 'm1', p1: 'a', p2: 'b', court: '',
-          score: [], status: 'pending', startedAt: null, finishedAt: null,
+          score: [], status: 'pending', walkover: null,
+          startedAt: null, finishedAt: null,
         }],
       }],
     };
     const standings = computeStandings(group, participants);
     expect(standings.every(s => s.played === 0)).toBe(true);
+  });
+
+  it('credits walkover wins without set/point delta', () => {
+    const participants = [part('a', 'A'), part('b', 'B')];
+    const group: Group = {
+      id: 'g', name: 'G', mode: 'round_robin',
+      members: ['a', 'b'],
+      rounds: [{
+        roundNo: 1,
+        matches: [walkoverMatch('m1', 'a', 'b', 'p1')],
+      }],
+    };
+    const standings = computeStandings(group, participants);
+    const a = standings.find(s => s.participantId === 'a')!;
+    const b = standings.find(s => s.participantId === 'b')!;
+    expect(a).toMatchObject({ won: 1, lost: 0, played: 1, setsWon: 0, setsLost: 0, pointsWon: 0, pointsLost: 0 });
+    expect(b).toMatchObject({ won: 0, lost: 1, played: 1, setsWon: 0, setsLost: 0 });
+  });
+
+  it('sinks withdrawn players to the bottom regardless of wins', () => {
+    // 'a' has zero wins; 'b' is withdrawn but has one win. 'a' should still
+    // rank ahead because withdrawn rows sink.
+    const participants: Participant[] = [
+      { ...part('a', 'A') },
+      { ...part('b', 'B'), withdrawn: true },
+      part('c', 'C'),
+    ];
+    const group: Group = {
+      id: 'g', name: 'G', mode: 'round_robin',
+      members: ['a', 'b', 'c'],
+      rounds: [{
+        roundNo: 1,
+        matches: [
+          match('m1', 'b', 'c', [[21, 10], [21, 10]]),  // b beats c
+        ],
+      }],
+    };
+    const standings = computeStandings(group, participants);
+    expect(standings.map(s => s.participantId)).toEqual(['a', 'c', 'b']);
+    expect(standings.find(s => s.participantId === 'b')!.withdrawn).toBe(true);
   });
 });

@@ -320,6 +320,28 @@ table.standings td:first-child { width: 2rem; color: var(--muted); }
   color: var(--muted);
 }
 .bm-set.set-won { color: var(--fg); font-weight: 600; }
+.bm-walkover {
+  flex: none;
+  padding: 0.2rem 0.5rem;
+  border-left: 1px solid var(--border);
+  font-style: italic;
+  color: var(--muted);
+  text-align: right;
+}
+.bracket-match.walkover .bm-name.winner { font-weight: 700; }
+tr.withdrawn { opacity: 0.55; }
+tr.withdrawn td:nth-child(2) { font-style: italic; }
+.badge.wd {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+.match.walkover .score { font-style: italic; color: var(--muted); }
 
 @media (max-width: 600px) {
   .match { grid-template-columns: 1fr; gap: 0.15rem; }

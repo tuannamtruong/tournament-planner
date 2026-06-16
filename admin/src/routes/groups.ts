@@ -54,7 +54,8 @@ export async function groupRoutes(app: FastifyInstance) {
       (s) => {
         const g = s.groups.find(g => g.id === id);
         if (!g) throw new Error(`group ${id} not found`);
-        const round = generateNextRound(g);
+        const withdrawn = new Set(s.participants.filter(p => p.withdrawn).map(p => p.id));
+        const round = generateNextRound(g, withdrawn);
         g.rounds.push(round);
         return s;
       },

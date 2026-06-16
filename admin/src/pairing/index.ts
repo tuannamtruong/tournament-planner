@@ -13,15 +13,21 @@ export type { Pairing };
  *   matching round number from the precomputed schedule.
  * - swiss: computes one round at a time from current standings + history.
  * - manual: throws — pairings are added by hand.
+ *
+ * `withdrawn` is the set of participant ids flagged as withdrawn — they're
+ * filtered out of `group.members` before pairing. Walkover matches in the
+ * round history still contribute to opponent-played + points for everyone
+ * left in the pool, so Swiss anti-rematch keeps working.
  */
-export function generateNextRound(group: Group): Round {
+export function generateNextRound(group: Group, withdrawn: Set<string> = new Set()): Round {
   if (group.mode === 'manual') {
     throw new Error(`Group "${group.name}" is manual — add matches manually.`);
   }
   const nextRoundNo = (group.rounds.at(-1)?.roundNo ?? 0) + 1;
+  const eligible = group.members.filter(id => !withdrawn.has(id));
 
   if (group.mode === 'round_robin') {
-    const schedule = roundRobin(group.members);
+    const schedule = roundRobin(eligible);
     const round = schedule.find(r => r.roundNo === nextRoundNo);
     if (!round) {
       throw new Error(`Round-robin schedule for "${group.name}" already complete.`);
@@ -30,7 +36,7 @@ export function generateNextRound(group: Group): Round {
   }
 
   // swiss
-  const players: SwissPlayer[] = group.members.map(id => {
+  const players: SwissPlayer[] = eligible.map(id => {
     const opponents = new Set<string>();
     let points = 0;
     let hadBye = false;
@@ -41,7 +47,13 @@ export function generateNextRound(group: Group): Round {
         if (m.p1 !== id && m.p2 !== id) continue;
         const opp = m.p1 === id ? m.p2 : m.p1;
         opponents.add(opp);
-        if (m.status !== 'done' || m.score.length === 0) continue;
+        if (m.status !== 'done') continue;
+        if (m.walkover) {
+          const won = (m.walkover === 'p1' && m.p1 === id) || (m.walkover === 'p2' && m.p2 === id);
+          if (won) points += 1;
+          continue;
+        }
+        if (m.score.length === 0) continue;
         let p1 = 0, p2 = 0;
         for (const [a, b] of m.score) { if (a > b) p1++; else if (b > a) p2++; }
         const won = (m.p1 === id) ? p1 > p2 : p2 > p1;
@@ -64,6 +76,7 @@ function materialize(pairs: Pairing[], roundNo: number): Round {
     court: '',
     score: [],
     status: 'pending',
+    walkover: null,
     startedAt: null,
     finishedAt: null,
   }));

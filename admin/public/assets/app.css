@@ -440,6 +440,9 @@ input.score::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .candidate-table th { background: var(--card); position: sticky; top: 0; z-index: 1; }
 .candidate-table th.sortable:hover { background: #f3f4f6; }
 .candidate-table tr.withdrawn-row td { background: #fef2f2; }
+tr.withdrawn-row td { background: #fef2f2; }
+.match.match-walkover { background: #fff7ed; }
+.walkover-note { font-style: italic; color: var(--muted); }
 
 .badge { display: inline-block; padding: 0 0.35rem; border-radius: 999px; font-size: 0.7rem; line-height: 1.4; border: 1px solid var(--border); }
 .badge.warn { background: #fef3c7; border-color: #fbbf24; }

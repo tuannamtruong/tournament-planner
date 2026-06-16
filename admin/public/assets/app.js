@@ -140,8 +140,11 @@ function isMissingPartner(p) {
 }
 
 function participantRow(p, opts = {}) {
-  return el('tr', { class: opts.error ? 'p-error' : '' },
-    el('td', {}, p.name),
+  const rowClasses = [opts.error ? 'p-error' : '', p.withdrawn ? 'withdrawn-row' : ''].filter(Boolean).join(' ');
+  return el('tr', { class: rowClasses },
+    el('td', {}, p.name,
+      p.withdrawn ? el('span', { class: 'badge warn', style: 'margin-left:0.4rem' }, 'withdrawn') : null,
+    ),
     el('td', {}, p.club),
     el('td', { class: 'mono' }, p.category),
     el('td', { class: 'mono' }, p.class),
@@ -150,6 +153,16 @@ function participantRow(p, opts = {}) {
       opts.error ? el('span', { class: 'badge badge-error', title: 'Doubles entry without a partner — pair them up before drawing groups.' }, 'no partner') : null,
     ),
     el('td', {},
+      p.withdrawn
+        ? el('button', { class: 'ghost', on: { click: async () => {
+            if (!confirm(`Reinstate ${p.name}? They become eligible for future pairings. Existing walkover results stay — undo them per-match in Scoring/Bracket if needed.`)) return;
+            await post(`/api/participants/${p.id}/reinstate`); await refresh();
+          } } }, 'Reinstate')
+        : el('button', { class: 'ghost', on: { click: async () => {
+            if (!confirm(`Withdraw ${p.name}? All their unplayed group matches and their active bracket slot will be marked as walkovers for the opponent. Future round-robin pairings will be regenerated.`)) return;
+            await post(`/api/participants/${p.id}/withdraw`); await refresh();
+          } } }, 'Withdraw'),
+      ' ',
       el('button', { class: 'ghost', on: { click: async () => {
         if (!confirm(`Remove ${p.name}?`)) return;
         await del(`/api/participants/${p.id}`); await refresh();
@@ -490,6 +503,7 @@ function renderMembersPanel(g) {
   }
   const memberIds = new Set(g.members);
   const shown = state.participants.filter(p => {
+    if (p.withdrawn) return false;
     if (memberIds.has(p.id)) return true;
     if (!eligibleForGroup(g, p)) return false;
     const owner = claimedByOther.get(p.id);
@@ -1396,6 +1410,33 @@ function renderKnockoutMatchesSection(kb, kind, count, byRound) {
 }
 
 function renderKnockoutMatchRow(kb, roundNo, slot) {
+  async function setWalkover(side) {
+    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, { walkover: side });
+    await refresh();
+  }
+  async function clearWalkover() {
+    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, { walkover: null, status: 'pending' });
+    await refresh();
+  }
+
+  if (slot.walkover) {
+    const winnerName = slot.walkover === 'p1' ? nameOf(slot.p1) : nameOf(slot.p2);
+    return el('div', { class: 'match match-walkover', id: `ko-match-${kb.id}-${roundNo}-${slot.slot}` },
+      el('div', { class: 'match-court muted' }, slot.court || ''),
+      el('div', { class: 'match-players' },
+        el('span', { class: slot.winner === slot.p1 ? 'winner' : '' }, nameOf(slot.p1)),
+        el('span', { class: 'muted' }, 'vs'),
+        el('span', { class: slot.winner === slot.p2 ? 'winner' : '' }, nameOf(slot.p2)),
+      ),
+      el('div', { class: 'match-actions' },
+        el('span', { class: 'walkover-note' }, `walkover — ${winnerName} wins`),
+        el('div', { class: 'match-buttons' },
+          el('button', { class: 'ghost', title: 'Clear walkover', on: { click: clearWalkover } }, 'Undo'),
+        ),
+      ),
+    );
+  }
+
   const sets = slot.score.length >= 3
     ? slot.score
     : [...slot.score, ...Array(3 - slot.score.length).fill([null, null])];
@@ -1449,6 +1490,8 @@ function renderKnockoutMatchRow(kb, roundNo, slot) {
         el('button', { class: 'ghost', title: 'Mark live', on: { click: markLive } }, '▶'),
         el('button', { title: `Win for ${nameOf(slot.p1)}`, on: { click: () => winFor(slot.p1) } }, `Win ${nameOf(slot.p1)}`),
         el('button', { title: `Win for ${nameOf(slot.p2)}`, on: { click: () => winFor(slot.p2) } }, `Win ${nameOf(slot.p2)}`),
+        slot.p1 ? el('button', { class: 'ghost', title: `Walkover — ${nameOf(slot.p1)} wins`, on: { click: () => setWalkover('p1') } }, 'WO ◀') : null,
+        slot.p2 ? el('button', { class: 'ghost', title: `Walkover — ${nameOf(slot.p2)} wins`, on: { click: () => setWalkover('p2') } }, 'WO ▶') : null,
         el('span', { class: 'status ' + slot.status }, slot.status),
       ),
     ),
@@ -1464,6 +1507,34 @@ function renderMatchRow(g, m) {
       ),
     );
   }
+
+  async function setWalkover(side) {
+    await patch(`/api/groups/${g.id}/matches/${m.id}`, { walkover: side });
+    await refresh();
+  }
+  async function clearWalkover() {
+    await patch(`/api/groups/${g.id}/matches/${m.id}`, { walkover: null, status: 'pending' });
+    await refresh();
+  }
+
+  if (m.walkover) {
+    const winnerName = m.walkover === 'p1' ? nameOf(m.p1) : nameOf(m.p2);
+    return el('div', { class: 'match match-walkover' },
+      el('div', { class: 'match-court muted' }, m.court || ''),
+      el('div', { class: 'match-players' },
+        el('span', {}, nameOf(m.p1)),
+        el('span', { class: 'muted' }, 'vs'),
+        el('span', {}, nameOf(m.p2)),
+      ),
+      el('div', { class: 'match-actions' },
+        el('span', { class: 'walkover-note' }, `walkover — ${winnerName} wins`),
+        el('div', { class: 'match-buttons' },
+          el('button', { class: 'ghost', title: 'Clear walkover', on: { click: clearWalkover } }, 'Undo'),
+        ),
+      ),
+    );
+  }
+
   const sets = m.score.length >= 3
     ? m.score
     : [...m.score, ...Array(3 - m.score.length).fill([null, null])];
@@ -1509,6 +1580,8 @@ function renderMatchRow(g, m) {
       el('div', { class: 'match-buttons' },
         el('button', { class: 'ghost', title: 'Mark live', on: { click: () => save('live') } }, '▶'),
         el('button', { title: 'Mark done', on: { click: () => save('done') } }, '✓'),
+        el('button', { class: 'ghost', title: `Walkover — ${nameOf(m.p1)} wins`, on: { click: () => setWalkover('p1') } }, 'WO ◀'),
+        el('button', { class: 'ghost', title: `Walkover — ${nameOf(m.p2)} wins`, on: { click: () => setWalkover('p2') } }, 'WO ▶'),
         el('span', { class: 'status ' + m.status }, m.status),
         el('button', { class: 'ghost remove-match', title: 'Remove match', on: { click: remove } }, '✕'),
       ),
@@ -1608,11 +1681,14 @@ function bracketMemberships() {
 
 function candidateRows() {
   // build per-player rows joining standings rank with group context.
+  // Withdrawn participants are omitted — they can't be seeded into a bracket.
   const rows = [];
   const groups = eligibleSourceGroups();
   for (const g of groups) {
     const standings = computeStandings(g);
     for (const r of standings) {
+      const p = state.participants.find(x => x.id === r.participantId);
+      if (p?.withdrawn) continue;
       rows.push({
         participantId: r.participantId,
         name: r.name,
@@ -1723,7 +1799,7 @@ function renderBracketWizard() {
     renderBracketWizard();
   } } }, 'Add all table leaders');
 
-  // Candidate picker (hides already-seeded; shows withdrawn + other-bracket badges)
+  // Candidate picker (hides already-seeded and withdrawn; shows other-bracket badges)
   const allRows = candidateRows();
   const visible = sortCandidates(allRows.filter(r => {
     if (seedSet.has(r.participantId)) return false;

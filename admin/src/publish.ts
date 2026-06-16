@@ -132,6 +132,7 @@ export function deriveViews(state: Tournament) {
         court: m.court,
         score: m.score,
         status: m.status,
+        walkover: m.walkover,
       })),
     })),
   }));
@@ -154,6 +155,7 @@ export function deriveViews(state: Tournament) {
         court: s.court,
         score: s.score,
         status: s.status,
+        walkover: s.walkover,
         winner: s.winner ? nameOf(state, s.winner) : null,
       })),
     })),

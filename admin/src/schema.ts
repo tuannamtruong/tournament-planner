@@ -21,6 +21,13 @@ export type Participant = z.infer<typeof Participant>;
 export const MatchStatus = z.enum(['pending', 'live', 'done']);
 export type MatchStatus = z.infer<typeof MatchStatus>;
 
+// `walkover` records a forfeit: if set, the named side wins the match without
+// a real score (status is forced to 'done', score stays []). Standings credit
+// a win/loss but no set/point delta. Withdrawing a participant fills this in
+// across all their unfinished group matches and KO slots.
+export const Walkover = z.union([z.literal('p1'), z.literal('p2'), z.null()]);
+export type Walkover = z.infer<typeof Walkover>;
+
 export const Match = z.object({
   id: z.string(),
   p1: z.string(),
@@ -28,6 +35,7 @@ export const Match = z.object({
   court: z.string().default(''),
   score: Score.default([]),
   status: MatchStatus.default('pending'),
+  walkover: Walkover.default(null),
   startedAt: z.string().nullable().default(null),
   finishedAt: z.string().nullable().default(null),
 });
@@ -67,6 +75,7 @@ export const BracketSlot = z.object({
   court: z.string().default(''),
   score: Score.default([]),
   status: MatchStatus.default('pending'),
+  walkover: Walkover.default(null),
   winner: z.string().nullable(),
   startedAt: z.string().nullable().default(null),
   finishedAt: z.string().nullable().default(null),

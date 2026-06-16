@@ -3,6 +3,7 @@ import type { Group, Match, Participant } from './schema.ts';
 export type Standing = {
   participantId: string;
   name: string;
+  withdrawn: boolean;
   played: number;
   won: number;
   lost: number;
@@ -49,6 +50,7 @@ export function computeStandings(group: Group, participants: Participant[]): Sta
     if (!p) continue;
     tally.set(id, {
       participantId: id, name: p.name,
+      withdrawn: p.withdrawn,
       played: 0, won: 0, lost: 0,
       setsWon: 0, setsLost: 0,
       pointsWon: 0, pointsLost: 0,
@@ -57,10 +59,17 @@ export function computeStandings(group: Group, participants: Participant[]): Sta
 
   for (const round of group.rounds) {
     for (const m of round.matches) {
-      if (m.status !== 'done' || m.score.length === 0) continue;
+      if (m.status !== 'done') continue;
       const a = tally.get(m.p1);
       const b = tally.get(m.p2);
       if (!a || !b) continue;
+      if (m.walkover) {
+        a.played++; b.played++;
+        if (m.walkover === 'p1') { a.won++; b.lost++; }
+        else { b.won++; a.lost++; }
+        continue;
+      }
+      if (m.score.length === 0) continue;
       const { p1Sets, p2Sets, p1Pts, p2Pts } = setScore(m);
       a.played++; b.played++;
       a.setsWon += p1Sets; a.setsLost += p2Sets;
@@ -74,6 +83,7 @@ export function computeStandings(group: Group, participants: Participant[]): Sta
 
   const rows = [...tally.values()];
   rows.sort((x, y) => {
+    if (x.withdrawn !== y.withdrawn) return x.withdrawn ? 1 : -1;
     if (y.won !== x.won) return y.won - x.won;
     const xSd = x.setsWon - x.setsLost;
     const ySd = y.setsWon - y.setsLost;

@@ -47,6 +47,7 @@ function renderMatch(slot, setColumns) {
   const sets = slot.score || [];
   const p1Won = !!slot.winner && slot.p1 && slot.winner === slot.p1;
   const p2Won = !!slot.winner && slot.p2 && slot.winner === slot.p2;
+  const isWalkover = !!slot.walkover;
 
   // Show the better (lower) seed in the match as the left badge — mirrors how
   // bracket sheets badge the top-seeded entrant.
@@ -56,19 +57,26 @@ function renderMatch(slot, setColumns) {
   function row(name, won, sideIdx) {
     const cells = [];
     cells.push(el('div', { class: 'bm-name' + (won ? ' winner' : '') }, name || '—'));
-    for (let i = 0; i < setColumns; i++) {
-      const set = sets[i];
-      const mine = set ? set[sideIdx] : null;
-      const other = set ? set[1 - sideIdx] : null;
-      const winSet = set && mine > other;
-      cells.push(el('div', { class: 'bm-set' + (winSet ? ' set-won' : '') },
-        mine == null ? '' : String(mine),
+    if (isWalkover) {
+      cells.push(el('div', { class: 'bm-walkover', style: `grid-column: span ${setColumns}` },
+        won ? 'walkover' : '',
       ));
+    } else {
+      for (let i = 0; i < setColumns; i++) {
+        const set = sets[i];
+        const mine = set ? set[sideIdx] : null;
+        const other = set ? set[1 - sideIdx] : null;
+        const winSet = set && mine > other;
+        cells.push(el('div', { class: 'bm-set' + (winSet ? ' set-won' : '') },
+          mine == null ? '' : String(mine),
+        ));
+      }
     }
     return el('div', { class: 'bm-row' + (won ? ' winner' : '') }, ...cells);
   }
 
-  return el('div', { class: 'bracket-match ' + (slot.status || 'pending') },
+  const classes = ['bracket-match', slot.status || 'pending', isWalkover ? 'walkover' : ''].filter(Boolean).join(' ');
+  return el('div', { class: classes },
     el('div', { class: 'bm-seed' }, seedBadge === '' ? '' : String(seedBadge)),
     el('div', { class: 'bm-rows' },
       row(slot.p1, p1Won, 0),

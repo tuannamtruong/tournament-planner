@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { mutate } from '../storage.ts';
-import { Score, MatchStatus, type Bracket, type BracketRound, type BracketSlot } from '../schema.ts';
+import { Score, MatchStatus, Walkover, type Bracket, type BracketRound, type BracketSlot } from '../schema.ts';
 
 const CreateBracket = z.object({
   name: z.string().min(1),
@@ -23,6 +23,7 @@ const PatchSlot = z.object({
   score: Score.optional(),
   status: MatchStatus.optional(),
   winner: z.string().nullable().optional(),
+  walkover: Walkover.optional(),
 });
 
 function nextPow2(n: number): number {
@@ -56,6 +57,7 @@ function emptyBracket(meta: { id: string; name: string; category: string; classe
         court: '',
         score: [],
         status: 'pending',
+        walkover: null,
         winner: null,
         startedAt: null,
         finishedAt: null,
@@ -158,6 +160,20 @@ export async function knockoutRoutes(app: FastifyInstance) {
         if (patch.court !== undefined) slot.court = patch.court;
         if (patch.score !== undefined) slot.score = patch.score;
         const now = new Date().toISOString();
+        if (patch.walkover !== undefined) {
+          slot.walkover = patch.walkover;
+          if (patch.walkover === null) {
+            slot.winner = null;
+          } else {
+            const winnerId = patch.walkover === 'p1' ? slot.p1 : slot.p2;
+            if (!winnerId) throw new Error(`cannot walkover side ${patch.walkover} — that side is empty`);
+            slot.score = [];
+            slot.status = 'done';
+            slot.winner = winnerId;
+            if (!slot.finishedAt) slot.finishedAt = now;
+            propagate(kb, roundNo, slotNo, winnerId);
+          }
+        }
         if (patch.status !== undefined) {
           slot.status = patch.status;
           if (patch.status === 'live' && !slot.startedAt) slot.startedAt = now;
@@ -190,7 +206,7 @@ export async function knockoutRoutes(app: FastifyInstance) {
   });
 }
 
-function propagate(kb: Bracket, roundNo: number, slotNo: number, winnerId: string): void {
+export function propagate(kb: Bracket, roundNo: number, slotNo: number, winnerId: string): void {
   const nextRound = kb.rounds.find(r => r.roundNo === roundNo + 1);
   if (!nextRound) return;
   const nextSlotIdx = Math.ceil(slotNo / 2);
