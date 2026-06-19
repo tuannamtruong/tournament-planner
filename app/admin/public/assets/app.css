@@ -795,3 +795,119 @@ table.participants-table .p-note { white-space: nowrap; }
 .pending-tab-pill.tab-matches      { background: #fef3c7; border-color: #fbbf24; color: #92400e; }
 .pending-tab-pill.tab-bracket      { background: #dcfce7; border-color: #86efac; color: #166534; }
 .pending-tab-pill.tab-settings     { background: #f3f4f6; border-color: #d1d5db; color: #4b5563; }
+
+/* -- Print score sheets ----------------------------------------------------- */
+.print-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+.print-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.print-controls select { padding: 0.3rem 0.4rem; }
+.print-controls .print-selectall {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+.print-controls #print-count { font-size: 0.85rem; }
+.print-controls #print-error { margin: 0; }
+
+.print-sheets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 0.75rem;
+}
+.print-sheet {
+  position: relative;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem 0.9rem;
+  background: var(--card);
+  cursor: pointer;
+}
+.print-sheet:not(.selected) { opacity: 0.45; }
+.ps-check { position: absolute; top: 0.6rem; right: 0.6rem; }
+.ps-head {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+  padding-right: 1.5rem;
+}
+.ps-court {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+}
+.ps-court .ps-line {
+  flex: 1;
+  border-bottom: 1px solid var(--fg);
+  height: 1em;
+}
+.ps-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.ps-row:last-child { margin-bottom: 0; }
+.ps-name { font-weight: 700; font-size: 1.05rem; }
+.ps-boxes { display: flex; gap: 0.4rem; flex: none; }
+.ps-box {
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 1.5px solid var(--fg);
+  border-radius: 3px;
+}
+
+@media print {
+  header, nav#tabs, .print-controls, .no-print, .floating-jump { display: none !important; }
+  main { margin: 0; padding: 0; }
+  section { display: none !important; }
+  section[data-tab="print"] { display: block !important; }
+  section[data-tab="print"] > h2, section[data-tab="print"] > .hint { display: none; }
+  body { background: #fff; color: #000; }
+
+  .print-sheets { display: block; }
+  .print-sheet:not(.selected) { display: none; }
+  .print-sheet {
+    opacity: 1;
+    box-shadow: none;
+    border: 1px solid #000;
+    border-radius: 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: #fff;
+    color: #000;
+    box-sizing: border-box;
+    margin: 0 0 6mm;
+  }
+  .ps-head { color: #000; }
+  .ps-court .ps-line, .ps-box { border-color: #000; }
+
+  /* 1 per page */
+  .print-sheets[data-per-page="1"] .print-sheet { break-after: page; page-break-after: always; min-height: 24cm; }
+  .print-sheets[data-per-page="1"] .print-sheet:last-child { break-after: auto; page-break-after: auto; }
+
+  /* 2 per page: stacked halves */
+  .print-sheets[data-per-page="2"] .print-sheet { height: 13cm; }
+
+  /* 4 per page: 2x2 grid */
+  .print-sheets[data-per-page="4"] { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+  .print-sheets[data-per-page="4"] .print-sheet { height: 13cm; margin: 0; }
+
+  @page { margin: 12mm; size: A4; }
+}

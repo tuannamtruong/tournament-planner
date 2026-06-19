@@ -22,6 +22,7 @@
     <a data-tab="bracket">Bracket</a>
     <a data-tab="matches">Matches</a>
     <a data-tab="upnext">Upnext</a>
+    <a data-tab="print">Print</a>
     <a data-tab="pending">Changes</a>
     <a data-tab="settings">Settings</a>
   </nav>
@@ -189,6 +190,43 @@
       <h2>Upnext</h2>
     </section>
 
+    <section data-tab="print">
+      <h2>Print score sheets</h2>
+      <p class="hint">Score sheets for scorekeepers: player names, a blank court line, and empty boxes for set points. Pick which matches need sheets, then Print or Download PDF.</p>
+      <div class="print-controls no-print">
+        <label>Category
+          <select id="print-filter-category"><option value="">Any</option></select>
+        </label>
+        <label>Class
+          <select id="print-filter-class"><option value="">Any</option></select>
+        </label>
+        <label>Competition
+          <select id="print-filter-competition"><option value="">All</option></select>
+        </label>
+        <label>Status
+          <select id="print-filter-status">
+            <option value="pending" selected>Pending</option>
+            <option value="live">Live</option>
+            <option value="done">Done</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+        <label>Per page
+          <select id="print-per-page">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+        <label class="print-selectall"><input type="checkbox" id="print-select-all" checked> Select all</label>
+        <span id="print-count" class="muted"></span>
+        <button type="button" id="print-do">Print</button>
+        <button type="button" id="print-pdf">Download PDF</button>
+        <span id="print-error" class="form-error" hidden></span>
+      </div>
+      <div id="print-sheets" class="print-sheets" data-per-page="2"></div>
+    </section>
+
     <section data-tab="pending">
       <h2>Changes</h2>
       <p class="hint">
@@ -224,6 +262,8 @@
     </section>
   </main>
 
+  <!-- Vendored offline (no CDN). Only used by Print tab → Download PDF. -->
+  <script defer src="/assets/vendor/jspdf.umd.min.js"></script>
   <script type="module" src="/assets/app.js"></script>
 </body>
 </html>
