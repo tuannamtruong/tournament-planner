@@ -131,6 +131,7 @@ async function refresh() {
   renderMatches();
   renderBracket();
   renderBracketWizard();
+  renderPrint();
   const nameInput = $('#add-group')?.elements.name;
   if (nameInput && document.activeElement !== nameInput) syncDefaultGroupName();
 }
@@ -147,6 +148,240 @@ try {
     $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === saved));
   }
 } catch {}
+
+// -- Print score sheets -------------------------------------------------------
+// Printable score sheets for scorekeepers: each sheet has the two player names,
+// a blank "Court:" line to fill in by hand, and empty boxes for the best-of-3
+// set scores. The operator filters/selects matches, then Print (window.print)
+// or Download PDF (vendored jsPDF). One DOM renderer + one PDF drawer both read
+// printSheetModel() so the two outputs stay in sync.
+const PRINT_FILTERS = { category: '', class: '', competition: '', status: 'pending' };
+let printPerPage = 2;
+let printByKey = new Map();
+
+// Flatten every playable match (group rounds + bracket slots) into a uniform
+// descriptor. BYE/empty slots are skipped — there is nothing to score.
+function printMatchDescriptors() {
+  const out = [];
+  if (!state) return out;
+  for (const g of state.groups) {
+    const cls = classList(g);
+    for (const r of g.rounds) {
+      for (const m of r.matches) {
+        if (m.p1 === '__bye__' || m.p2 === '__bye__') continue;
+        out.push({
+          key: `g:${g.id}:${m.id}`,
+          compId: `g:${g.id}`, compName: g.name,
+          category: g.category || '', classes: cls, classLabel: cls.join('/'),
+          round: `R${r.roundNo}`, status: m.status,
+          p1: nameOf(m.p1), p2: nameOf(m.p2),
+        });
+      }
+    }
+  }
+  for (const kb of state.knockouts) {
+    const cls = kb.classes || [];
+    for (const { roundNo, slot } of bracketSlotMatches(kb)) {
+      if (slot.p1 === '__bye__' || slot.p2 === '__bye__') continue;
+      const round = kb.rounds.find(r => r.roundNo === roundNo);
+      out.push({
+        key: `k:${kb.id}:${roundNo}:${slot.slot}`,
+        compId: `k:${kb.id}`, compName: kb.name,
+        category: kb.category || '', classes: cls, classLabel: cls.join('/'),
+        round: round ? bracketRoundLabel(round) : `R${roundNo}`, status: slot.status,
+        p1: nameOf(slot.p1), p2: nameOf(slot.p2),
+      });
+    }
+  }
+  return out;
+}
+
+function printFilterMatch(d) {
+  if (PRINT_FILTERS.category && d.category !== PRINT_FILTERS.category) return false;
+  if (PRINT_FILTERS.class && !d.classes.includes(PRINT_FILTERS.class)) return false;
+  if (PRINT_FILTERS.competition && d.compId !== PRINT_FILTERS.competition) return false;
+  const st = PRINT_FILTERS.status;
+  if (st !== 'all' && d.status !== st) return false;
+  return true;
+}
+
+// Strings/counts shared by the DOM sheet and the PDF cell.
+function printSheetModel(d) {
+  const tag = [d.category, d.classLabel].filter(Boolean).join('/');
+  return {
+    header: [d.compName, d.round, tag].filter(Boolean).join(' · '),
+    p1: d.p1, p2: d.p2, sets: MATCH_SET_COLS,
+  };
+}
+
+function buildPrintSheet(d) {
+  const m = printSheetModel(d);
+  const boxes = () => el('div', { class: 'ps-boxes' },
+    ...Array.from({ length: m.sets }, () => el('span', { class: 'ps-box' })));
+  const check = el('input', { class: 'no-print ps-check', type: 'checkbox', checked: true });
+  const sheet = el('label', { class: 'print-sheet selected', 'data-key': d.key },
+    check,
+    el('div', { class: 'ps-head' }, m.header),
+    el('div', { class: 'ps-court' }, 'Court: ', el('span', { class: 'ps-line' })),
+    el('div', { class: 'ps-body' },
+      el('div', { class: 'ps-row' }, el('div', { class: 'ps-name' }, m.p1), boxes()),
+      el('div', { class: 'ps-row' }, el('div', { class: 'ps-name' }, m.p2), boxes()),
+    ),
+  );
+  check.addEventListener('change', () => {
+    sheet.classList.toggle('selected', check.checked);
+    updatePrintCount();
+    syncSelectAll();
+  });
+  return sheet;
+}
+
+// Rebuild the <select> options, preserving the live DOM selection if it still
+// exists (else fall back to the "any/all" entry). Returns nothing — the caller
+// reads values back via syncPrintFiltersFromControls().
+function fillPrintSelect(sel, options, anyLabel) {
+  if (!sel) return;
+  const want = sel.value;
+  sel.replaceChildren(
+    el('option', { value: '' }, anyLabel),
+    ...options.map(o => el('option', { value: o.value }, o.label)),
+  );
+  sel.value = options.some(o => o.value === want) ? want : '';
+}
+
+function populatePrintFilterOptions(all) {
+  const cats = [...new Set(all.map(d => d.category).filter(Boolean))].sort();
+  const classes = [...new Set(all.flatMap(d => d.classes).filter(Boolean))].sort();
+  const comps = [];
+  const seen = new Set();
+  for (const d of all) if (!seen.has(d.compId)) { seen.add(d.compId); comps.push({ value: d.compId, label: d.compName }); }
+  fillPrintSelect($('#print-filter-category'), cats.map(c => ({ value: c, label: c })), 'Any');
+  fillPrintSelect($('#print-filter-class'), classes.map(c => ({ value: c, label: c })), 'Any');
+  fillPrintSelect($('#print-filter-competition'), comps, 'All');
+}
+
+function syncPrintFiltersFromControls() {
+  PRINT_FILTERS.category = $('#print-filter-category')?.value ?? '';
+  PRINT_FILTERS.class = $('#print-filter-class')?.value ?? '';
+  PRINT_FILTERS.competition = $('#print-filter-competition')?.value ?? '';
+  PRINT_FILTERS.status = $('#print-filter-status')?.value ?? 'pending';
+  printPerPage = Number($('#print-per-page')?.value ?? 2);
+}
+
+function renderPrint() {
+  const root = $('#print-sheets');
+  if (!root) return;
+  const all = printMatchDescriptors();
+  populatePrintFilterOptions(all);
+  syncPrintFiltersFromControls();
+  const filtered = all.filter(printFilterMatch);
+  printByKey = new Map(filtered.map(d => [d.key, d]));
+  root.dataset.perPage = String(printPerPage);
+  if (filtered.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted no-print' },
+      all.length ? 'No matches match the current filters.' : 'No matches yet — create groups or a bracket first.'));
+    updatePrintCount();
+    syncSelectAll();
+    return;
+  }
+  root.replaceChildren(...filtered.map(buildPrintSheet));
+  updatePrintCount();
+  syncSelectAll();
+}
+
+function selectedPrintSheets() {
+  const root = $('#print-sheets');
+  return root ? $$('.print-sheet.selected', root) : [];
+}
+
+function updatePrintCount() {
+  const c = $('#print-count');
+  if (!c) return;
+  const total = printByKey.size;
+  c.textContent = total ? `${selectedPrintSheets().length} of ${total} selected` : '';
+}
+
+function syncSelectAll() {
+  const selAll = $('#print-select-all');
+  const root = $('#print-sheets');
+  if (!selAll || !root) return;
+  const sheets = $$('.print-sheet', root);
+  const sel = sheets.filter(s => s.classList.contains('selected'));
+  selAll.checked = sheets.length > 0 && sel.length === sheets.length;
+  selAll.indeterminate = sel.length > 0 && sel.length < sheets.length;
+}
+
+function showPrintError(msg) { const e = $('#print-error'); if (e) { e.textContent = msg; e.hidden = false; } }
+function hidePrintError() { const e = $('#print-error'); if (e) e.hidden = true; }
+
+function downloadSheetsPdf() {
+  const jsPDFCtor = window.jspdf?.jsPDF;
+  if (!jsPDFCtor) { showPrintError('PDF library failed to load — use the Print button instead.'); return; }
+  const sheets = selectedPrintSheets().map(s => printByKey.get(s.dataset.key)).filter(Boolean);
+  if (sheets.length === 0) { showPrintError('No sheets selected.'); return; }
+  hidePrintError();
+  drawSheetsPdf(jsPDFCtor, sheets, printPerPage);
+}
+
+function clip(s, max) { return s.length > max ? s.slice(0, max - 1) + '…' : s; }
+
+// Draw the selected sheets onto A4 pages, laid out per the per-page setting
+// (1 → full page, 2 → stacked halves, 4 → 2×2). Mirrors the on-screen sheet.
+function drawSheetsPdf(jsPDFCtor, sheets, perPage) {
+  const doc = new jsPDFCtor({ unit: 'mm', format: 'a4' });
+  const pageW = 210, pageH = 297, margin = 12, gap = 8;
+  const cols = perPage === 4 ? 2 : 1;
+  const rows = perPage === 1 ? 1 : 2;
+  const per = cols * rows;
+  const cellW = (pageW - margin * 2 - gap * (cols - 1)) / cols;
+  const cellH = (pageH - margin * 2 - gap * (rows - 1)) / rows;
+  sheets.forEach((d, i) => {
+    const onPage = i % per;
+    if (i > 0 && onPage === 0) doc.addPage();
+    const col = onPage % cols;
+    const row = Math.floor(onPage / cols);
+    drawSheetCell(doc, printSheetModel(d), margin + col * (cellW + gap), margin + row * (cellH + gap), cellW, cellH);
+  });
+  doc.save('score-sheets.pdf');
+}
+
+function drawSheetCell(doc, m, x, y, w, h) {
+  doc.setDrawColor(120); doc.setLineWidth(0.2);
+  doc.rect(x, y, w, h);
+  let cy = y + 9;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+  doc.text(clip(m.header, 60), x + 5, cy);
+  cy += 9;
+  doc.setFontSize(11); doc.setTextColor(20);
+  doc.text('Court:', x + 5, cy);
+  doc.setDrawColor(160); doc.setLineWidth(0.2);
+  doc.line(x + 22, cy + 0.5, x + w - 5, cy + 0.5);
+  cy += 11;
+  const boxN = m.sets, boxW = 13, boxH = 11, boxGap = 3;
+  const boxesW = boxN * boxW + (boxN - 1) * boxGap;
+  for (const name of [m.p1, m.p2]) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(0);
+    doc.text(clip(name, 30), x + 5, cy + boxH / 2 + 1.5, { maxWidth: w - 10 - boxesW });
+    let bx = x + w - 5 - boxesW;
+    doc.setDrawColor(60); doc.setLineWidth(0.3);
+    for (let s = 0; s < boxN; s++) { doc.rect(bx, cy, boxW, boxH); bx += boxW + boxGap; }
+    cy += boxH + 7;
+  }
+}
+
+// -- Print controls init ------------------------------------------------------
+['#print-filter-category', '#print-filter-class', '#print-filter-competition', '#print-filter-status', '#print-per-page']
+  .forEach(sel => $(sel)?.addEventListener('change', () => renderPrint()));
+$('#print-select-all')?.addEventListener('change', (e) => {
+  const on = e.target.checked;
+  $$('.print-sheet', $('#print-sheets')).forEach(s => {
+    s.classList.toggle('selected', on);
+    const cb = s.querySelector('.ps-check'); if (cb) cb.checked = on;
+  });
+  updatePrintCount();
+});
+$('#print-do')?.addEventListener('click', () => window.print());
+$('#print-pdf')?.addEventListener('click', () => downloadSheetsPdf());
 
 // -- Publish status -----------------------------------------------------------
 let lastPendingCount = -1;
