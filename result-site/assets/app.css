@@ -275,7 +275,7 @@ table.standings tr.top-pts td { background: #f0fdf4; }
   min-height: 3.2rem;
   margin: 0.4rem 0;
 }
-.bracket-match.live { background: #fef3c7; }
+.bracket-match.live { background: #dcfce7; }
 .bm-seed {
   display: flex;
   align-items: center;

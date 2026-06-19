@@ -380,7 +380,7 @@ details.matches-section > summary {
   width: max-content;
   max-width: 100%;
 }
-.bracket-match.live { background: #fef3c7; }
+.bracket-match.live { background: #dcfce7; }
 .bracket-match.walkover { background: #fff7ed; }
 .bracket-match.clickable { cursor: pointer; }
 .bracket-match.clickable:hover { background: #f1f5f9; border-color: #94a3b8; }
