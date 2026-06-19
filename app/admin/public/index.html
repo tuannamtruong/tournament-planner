@@ -118,6 +118,15 @@
         </div>
         <div id="groups-overview"></div>
       </div>
+      <div class="overview-strip" id="groups-overview-strip" data-overview="groups-overview" data-jump-to="groups-overview-card" hidden>
+        <div class="overview-strip-inner">
+          <span class="strip-title">Groups overview</span>
+          <span class="strip-summary"></span>
+          <button type="button" class="ghost small strip-expand">Expand all</button>
+          <button type="button" class="ghost small strip-jump">↑ Top</button>
+        </div>
+        <div class="strip-popover" hidden></div>
+      </div>
       <p class="hint">Standings, head-to-head, and pairings per group. Round-robin/Swiss: click "Generate next round". All modes: add matches manually below.</p>
       <div id="groupstage-list"></div>
       <button type="button" class="floating-jump" data-jump-to="groups-overview-card" title="Jump to overview">↑ Overview</button>
@@ -136,6 +145,15 @@
         </div>
         <div id="matches-overview"></div>
       </div>
+      <div class="overview-strip" id="matches-overview-strip" data-overview="matches-overview" data-jump-to="matches-overview-card" hidden>
+        <div class="overview-strip-inner">
+          <span class="strip-title">Matches overview</span>
+          <span class="strip-summary"></span>
+          <button type="button" class="ghost small strip-expand">Expand all</button>
+          <button type="button" class="ghost small strip-jump">↑ Top</button>
+        </div>
+        <div class="strip-popover" hidden></div>
+      </div>
       <div id="matches-list"></div>
       <button type="button" class="floating-jump" data-jump-to="matches-overview-card" title="Jump to overview">↑ Overview</button>
     </section>
@@ -153,6 +171,15 @@
           <button type="button" class="ghost small" id="bracket-overview-toggle">Expand all</button>
         </div>
         <div id="bracket-overview"></div>
+      </div>
+      <div class="overview-strip" id="bracket-overview-strip" data-overview="bracket-overview" data-jump-to="bracket-overview-card" hidden>
+        <div class="overview-strip-inner">
+          <span class="strip-title">Bracket overview</span>
+          <span class="strip-summary"></span>
+          <button type="button" class="ghost small strip-expand">Expand all</button>
+          <button type="button" class="ghost small strip-jump">↑ Top</button>
+        </div>
+        <div class="strip-popover" hidden></div>
       </div>
       <div id="bracket-list"></div>
       <button type="button" class="floating-jump" data-jump-to="bracket-overview-card" title="Jump to overview">↑ Overview</button>
@@ -181,6 +208,14 @@
         </label>
         <button type="submit">Save</button>
       </form>
+      <div class="settings-group">
+        <h3>Display</h3>
+        <label class="setting-row">
+          <input type="checkbox" id="toggle-floating-jump">
+          Show the floating “↑ Overview” button (bottom-left)
+        </label>
+        <p class="hint">Off by default — the sticky strip under the nav bar already jumps you back to the overview on the Groups, Matches and Bracket tabs.</p>
+      </div>
       <div class="diagnostics">
         <h3>Publish</h3>
         <pre id="publish-debug"></pre>

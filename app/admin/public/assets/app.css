@@ -192,6 +192,83 @@ details.collapsible-card > .collapsible-body { padding: 0.9rem; }
   cursor: pointer;
 }
 .floating-jump:hover { opacity: 0.92; }
+/* Hidden by default; the Settings toggle adds .show-floating-jump to <body>. */
+body:not(.show-floating-jump) .floating-jump { display: none; }
+
+/* Sticky strip that rides under the nav bar once the Overview card scrolls off.
+   Shown/hidden from JS by toggling [hidden]; --nav-h is measured at runtime. */
+.overview-strip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--nav-h, 41px);
+  z-index: 9;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+.overview-strip[hidden] { display: none; }
+.overview-strip-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1.25rem;
+  max-width: 2000px;
+  margin: 0 auto;
+}
+.overview-strip .strip-title { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+.overview-strip .strip-jump { margin-left: auto; }
+/* Compact per-discipline breakdown; shrinks/clips first when space is tight. */
+.overview-strip .strip-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+.overview-strip .strip-summary:empty { display: none; }
+.overview-strip .strip-summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  white-space: nowrap;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.1rem 0.35rem;
+  cursor: pointer;
+}
+.overview-strip .strip-summary-item:hover { background: var(--bg); border-color: var(--border); }
+
+/* Drill-down panel hung beneath the strip (strip is position:fixed). */
+.strip-popover {
+  position: absolute;
+  top: 100%;
+  margin-top: 1px;
+  max-width: calc(100vw - 16px);
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  padding: 0.6rem 0.85rem;
+  z-index: 11;
+}
+.strip-popover[hidden] { display: none; }
+.strip-pop-cols { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.strip-pop-col { flex: 0 1 auto; min-width: 150px; max-width: 210px; }
+.strip-pop-cat { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; margin-bottom: 0.3rem; }
+.strip-pop-class > summary { cursor: pointer; padding: 0.15rem 0; }
+.strip-pop-list { margin: 0.2rem 0 0.5rem; padding-left: 0; list-style: none; }
+.strip-pop-list li { margin: 0.12rem 0; }
+
+.settings-group { margin: 1rem 0; }
+.settings-group h3 { margin: 0 0 0.5rem; }
+.setting-row { display: flex; align-items: center; gap: 0.5rem; }
 
 .overview-header {
   display: flex;

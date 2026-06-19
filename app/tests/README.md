@@ -25,6 +25,8 @@ node tests/participants.test.mjs  # or run one slice
 | `views.test.mjs` | `/view/data/{version,groups,knockout}.json` shape + pre-computed standings; publish status. |
 | `pending.test.mjs` | Pending-log tab+summary rendering; linear undo / revert-all. |
 | `jump-to-matches.test.mjs` | (Playwright) clicking a group's standings jumps to the Matches tab and flashes its card. |
+| `overview-strip.test.mjs` | (Playwright) sticky overview strip pins under the nav once the Overview card scrolls past, scopes to its tab; carries a per-discipline summary; its tags open a compact drill-down popover (category → classes → name-only tables) whose links jump to the table, and Expand all opens every category at once; Settings toggle reveals the floating button. |
+| `overview-render.test.mjs` | (Playwright) Groups overview renders both columns across categories/classes, is never blank when groups exist, and never falls back to its error state on valid data (regression guard for the blank-overview bug). |
 
 `run-all.mjs` runs each script in its own process, serially, and exits nonzero
 if any fail.

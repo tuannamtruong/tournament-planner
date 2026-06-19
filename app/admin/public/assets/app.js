@@ -133,6 +133,7 @@ async function refresh() {
   renderBracketWizard();
   const nameInput = $('#add-group')?.elements.name;
   if (nameInput && document.activeElement !== nameInput) syncDefaultGroupName();
+  scheduleStripUpdate();
 }
 
 // -- Tabs ---------------------------------------------------------------------
@@ -216,6 +217,159 @@ $$('.floating-jump').forEach(btn => {
     if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
+
+// -- Floating "↑ Overview" button visibility (Settings toggle) ----------------
+const FLOATING_JUMP_KEY = 'tp.showFloatingJump';
+function applyFloatingJumpPref() {
+  const on = localStorage.getItem(FLOATING_JUMP_KEY) === '1';
+  document.body.classList.toggle('show-floating-jump', on);
+  const cb = $('#toggle-floating-jump');
+  if (cb) cb.checked = on;
+}
+$('#toggle-floating-jump')?.addEventListener('change', (e) => {
+  try { localStorage.setItem(FLOATING_JUMP_KEY, e.target.checked ? '1' : '0'); } catch {}
+  applyFloatingJumpPref();
+});
+applyFloatingJumpPref();
+
+// -- Sticky overview strip (Groups / Matches / Bracket) -----------------------
+// Each strip is fixed under the nav bar and revealed once its Overview card has
+// scrolled above the nav. Only the active tab's strip can show.
+const overviewStrips = $$('.overview-strip');
+
+// Per-strip render data, captured by renderOverviewTree (keyed by the overview
+// root id, which matches each strip's data-overview). Lets the strip's popover
+// rebuild the category → class → item drill-down on demand, reusing the same
+// renderItem so its links jump to the table just like the full Overview card.
+const overviewStripData = new Map();
+
+function measureNavHeight() {
+  const nav = $('nav#tabs');
+  if (nav) document.documentElement.style.setProperty('--nav-h', `${nav.offsetHeight}px`);
+}
+
+function updateOverviewStrips() {
+  measureNavHeight();
+  const navH = $('nav#tabs')?.offsetHeight ?? 41;
+  const activeTab = $('section[data-tab].active')?.dataset.tab;
+  for (const strip of overviewStrips) {
+    const section = strip.closest('section[data-tab]');
+    const card = document.getElementById(strip.dataset.jumpTo);
+    const onActiveTab = section?.dataset.tab === activeTab;
+    // Reveal once the Overview card's bottom edge is above (scrolled past) the nav.
+    const pastOverview = card ? card.getBoundingClientRect().bottom <= navH : false;
+    strip.hidden = !(onActiveTab && pastOverview);
+  }
+  if (openPopoverStrip?.hidden) closeStripPopover();
+}
+
+// -- Strip drill-down popover -------------------------------------------------
+// Clicking a discipline tag in the strip opens a panel under it: classes for
+// that category, each expanding to its (numbered) list of tables; clicking a
+// table jumps to it. "Expand all" opens every category at once in columns.
+let openPopoverStrip = null;
+let openPopoverKey = null;
+
+function closeStripPopover() {
+  if (!openPopoverStrip) return;
+  const pop = openPopoverStrip.querySelector('.strip-popover');
+  if (pop) { pop.hidden = true; pop.replaceChildren(); pop.style.left = ''; }
+  openPopoverStrip.classList.remove('popover-open');
+  openPopoverStrip = null;
+  openPopoverKey = null;
+}
+
+function buildStripPopover(rootElId, cats, expandClasses) {
+  const data = overviewStripData.get(rootElId);
+  if (!data) return el('p', { class: 'muted' }, 'Nothing here yet.');
+  const { byCat, flatClasses } = data;
+  // The popover lists are intentionally terse (jump link only) — the full
+  // Overview card keeps the per-item detail.
+  const renderItem = data.stripItem ?? data.renderItem;
+  const orderClasses = (clsMap) => {
+    const out = [];
+    for (const k of CLASS_ORDER) if (clsMap.has(k)) out.push(k);
+    for (const k of clsMap.keys()) if (!CLASS_ORDER.includes(k)) out.push(k);
+    return out;
+  };
+  const cols = cats.filter(c => byCat.has(c)).map(cat => {
+    const clsMap = byCat.get(cat);
+    const body = flatClasses
+      ? [el('ul', { class: 'strip-pop-list' }, ...orderClasses(clsMap).flatMap(cls => clsMap.get(cls).map(renderItem)))]
+      : orderClasses(clsMap).map(cls => {
+          const list = clsMap.get(cls);
+          return el('details', { class: 'strip-pop-class', ...(expandClasses ? { open: true } : {}) },
+            el('summary', {},
+              el('span', {}, `Class ${cls || '·'}`),
+              el('span', { class: 'muted' }, ` · ${list.length}`),
+            ),
+            el('ul', { class: 'strip-pop-list' }, ...list.map(renderItem)),
+          );
+        });
+    return el('div', { class: 'strip-pop-col' },
+      el('div', { class: 'strip-pop-cat' },
+        el('span', { class: 'mono cat-tag' }, cat || '·'),
+      ),
+      ...body,
+    );
+  });
+  return cols.length
+    ? el('div', { class: 'strip-pop-cols' }, ...cols)
+    : el('p', { class: 'muted' }, 'Nothing here yet.');
+}
+
+function openStripPopover(rootElId, cats, { trigger = null, expandClasses = false } = {}) {
+  const strip = document.querySelector(`.overview-strip[data-overview="${rootElId}"]`);
+  const pop = strip?.querySelector('.strip-popover');
+  if (!pop) return;
+  const key = `${rootElId}|${cats.join(',')}`;
+  const reopened = openPopoverStrip === strip && openPopoverKey === key;
+  closeStripPopover();
+  if (reopened) return; // clicking the same trigger again toggles it closed
+
+  pop.replaceChildren(buildStripPopover(rootElId, cats, expandClasses));
+  pop.hidden = false;
+  strip.classList.add('popover-open');
+  openPopoverStrip = strip;
+  openPopoverKey = key;
+
+  // Anchor under the trigger (a tag) or, for Expand all, the summary; clamp so a
+  // wide multi-column panel never spills past the right edge of the strip.
+  const ref = trigger || strip.querySelector('.strip-summary');
+  const stripRect = strip.getBoundingClientRect();
+  let left = ref ? ref.getBoundingClientRect().left - stripRect.left : 8;
+  left = Math.min(Math.max(8, left), Math.max(8, stripRect.width - pop.offsetWidth - 8));
+  pop.style.left = `${left}px`;
+}
+
+// Outside click / Escape dismisses; a click on an item link jumps (its own
+// handler) and then closes the popover.
+document.addEventListener('click', (e) => {
+  if (!openPopoverStrip) return;
+  if (e.target.closest('.strip-popover')) { if (e.target.closest('a')) closeStripPopover(); return; }
+  if (e.target.closest('.strip-summary-item') || e.target.closest('.strip-expand')) return;
+  closeStripPopover();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeStripPopover(); });
+
+for (const strip of overviewStrips) {
+  strip.querySelector('.strip-expand').addEventListener('click', () => {
+    const data = overviewStripData.get(strip.dataset.overview);
+    openStripPopover(strip.dataset.overview, data ? data.allCats : [], { expandClasses: true });
+  });
+  strip.querySelector('.strip-jump').addEventListener('click', () => {
+    document.getElementById(strip.dataset.jumpTo)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+let stripRaf = 0;
+function scheduleStripUpdate() {
+  if (stripRaf) return;
+  stripRaf = requestAnimationFrame(() => { stripRaf = 0; updateOverviewStrips(); });
+}
+window.addEventListener('scroll', scheduleStripUpdate, { passive: true });
+window.addEventListener('resize', scheduleStripUpdate);
+updateOverviewStrips();
 
 // -- Participants -------------------------------------------------------------
 const CATEGORY_ORDER = ['MS', 'WS', 'MD', 'WD', 'MX'];
@@ -526,9 +680,20 @@ function isOverviewOpen(key, defaultOpen) {
   return overviewOpen.has(key) ? overviewOpen.get(key) : defaultOpen;
 }
 
-function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem, flatClasses = false }) {
+// Fill the sticky strip's compact discipline summary (one tag + count per
+// category, in display order) so it stays informative once the full Overview
+// card has scrolled off. Keyed off rootEl.id, which matches the strip's
+// data-overview attribute.
+function setStripSummary(rootElId, parts) {
+  const summary = document.querySelector(`.overview-strip[data-overview="${rootElId}"] .strip-summary`);
+  if (summary) summary.replaceChildren(...parts);
+}
+
+function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem, stripItem, flatClasses = false }) {
   if (items.length === 0) {
     rootEl.replaceChildren(el('p', { class: 'muted' }, 'Nothing here yet.'));
+    overviewStripData.delete(rootEl.id);
+    setStripSummary(rootEl.id, []);
     return;
   }
   const byCat = new Map();
@@ -596,20 +761,45 @@ function renderOverviewTree({ rootEl, items, getCat, getCls, prefix, renderItem,
   const singlesCats = allCats.filter(c => SINGLES.has(c));
   const otherCats = allCats.filter(c => !SINGLES.has(c));
 
-  rootEl.replaceChildren(el('div', { class: 'overview-cols' },
-    el('div', { class: 'overview-col' },
-      el('h4', { class: 'overview-col-title' }, 'Singles'),
-      singlesCats.length === 0
-        ? el('p', { class: 'muted' }, '—')
-        : el('div', {}, ...singlesCats.map(renderCat)),
-    ),
-    el('div', { class: 'overview-col' },
-      el('h4', { class: 'overview-col-title' }, 'Doubles & Mix'),
-      otherCats.length === 0
-        ? el('p', { class: 'muted' }, '—')
-        : el('div', {}, ...otherCats.map(renderCat)),
-    ),
-  ));
+  // Keep the data around so the strip's drill-down popover can rebuild from it.
+  overviewStripData.set(rootEl.id, { byCat, allCats, renderItem, stripItem, flatClasses });
+
+  setStripSummary(rootEl.id, allCats.map(cat => {
+    const total = [...byCat.get(cat).values()].reduce((s, a) => s + a.length, 0);
+    return el('button', {
+      type: 'button',
+      class: 'strip-summary-item',
+      'data-cat': cat,
+      on: { click: (e) => openStripPopover(rootEl.id, [cat], { trigger: e.currentTarget, expandClasses: true }) },
+    },
+      el('span', { class: 'mono cat-tag' }, cat || '·'),
+      el('span', { class: 'muted' }, ` ${total}`),
+    );
+  }));
+
+  // Build the whole tree, then swap it in. If building any node throws (a
+  // malformed item, an unexpected shape), surface it instead of silently
+  // leaving the card blank — replaceChildren never runs on a partial build, so
+  // without this guard one bad item blanks the entire overview.
+  try {
+    rootEl.replaceChildren(el('div', { class: 'overview-cols' },
+      el('div', { class: 'overview-col' },
+        el('h4', { class: 'overview-col-title' }, 'Singles'),
+        singlesCats.length === 0
+          ? el('p', { class: 'muted' }, '—')
+          : el('div', {}, ...singlesCats.map(renderCat)),
+      ),
+      el('div', { class: 'overview-col' },
+        el('h4', { class: 'overview-col-title' }, 'Doubles & Mix'),
+        otherCats.length === 0
+          ? el('p', { class: 'muted' }, '—')
+          : el('div', {}, ...otherCats.map(renderCat)),
+      ),
+    ));
+  } catch (err) {
+    console.error('overview render failed', err);
+    rootEl.replaceChildren(el('p', { class: 'muted' }, `Couldn't render overview: ${err.message}`));
+  }
 }
 
 function toggleAllOverview(rootEl) {
@@ -679,7 +869,7 @@ function renderMembersPanel(g) {
 
 function matchProgress(g) {
   let done = 0, total = 0;
-  for (const r of g.rounds) for (const m of r.matches) {
+  for (const r of g.rounds ?? []) for (const m of r.matches ?? []) {
     if (m.p1 === '__bye__' || m.p2 === '__bye__') continue;
     total++;
     if (m.status === 'done') done++;
@@ -708,6 +898,9 @@ function renderGroupsOverview() {
         total > 0 ? el('span', { class: 'muted' }, ` · ${done}/${total} matches`) : null,
       );
     },
+    stripItem: (g) => el('li', {},
+      el('a', { href: `#group-${g.id}`, on: { click: jumpTo(`group-${g.id}`) } }, g.name),
+    ),
   });
 }
 
@@ -1493,6 +1686,11 @@ function renderMatchesOverview() {
           : el('span', { class: 'muted' }, ' · waiting on group results'),
       );
     },
+    stripItem: (it) => {
+      const anchor = it.kind === 'group' ? `matches-group-${it.g.id}` : `matches-bracket-${it.kb.id}`;
+      const name = it.kind === 'group' ? it.g.name : it.kb.name;
+      return el('li', {}, el('a', { href: `#${anchor}`, on: { click: jumpTo(anchor) } }, name));
+    },
   });
 }
 
@@ -2209,6 +2407,9 @@ function renderBracketOverview() {
           : el('span', { class: 'muted' }, ' · waiting on group results'),
       );
     },
+    stripItem: (kb) => el('li', {},
+      el('a', { href: `#bracket-${kb.id}`, on: { click: jumpTo(`bracket-${kb.id}`) } }, kb.name),
+    ),
   });
 }
 
@@ -2309,6 +2510,7 @@ function activateTab(name) {
   try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch {}
   $$('nav#tabs a').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
   $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === name));
+  updateOverviewStrips();
 }
 
 function jumpToKoMatch(kbId, roundNo, slotNo, isDone) {
