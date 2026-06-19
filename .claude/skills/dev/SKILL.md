@@ -9,11 +9,12 @@ A local Node + Fastify admin app on `http://localhost:37325` that owns
 JSONs the result site (S3-website-hosted) fetches on page load. Everything in one repo, no
 build step, no hosted backend.
 
-Drive it via `.claude/skills/dev/driver.mjs` — that script
-boots the real server on a random free port against a temp `TP_DATA_FILE`,
-walks the full lifecycle (rename → participants → group → next-round → score
-match → knockout → fetch `/view/data/*.json`), and asserts on responses. All
-paths below are relative to the repo root.
+Drive it via the `tests/` harness scripts. `node tests/run-all.mjs` runs the
+whole suite — each `*.test.mjs` boots the real server on a random free port
+against a temp `TP_DATA_FILE`, seeds just what it needs, and asserts on
+responses, walking the full lifecycle (rename → participants → group →
+next-round → score match → knockout → `/view/data/*.json` → pending log/undo,
+plus a Playwright UI check). All paths below are relative to the repo root.
 
 ## Prerequisites
 
@@ -26,11 +27,14 @@ node --version   # v18.x or newer
 ```
 
 No `apt-get` packages were needed — the project is pure JS/TS. `lsof` is used
-by `driver.mjs` for cleanup and is preinstalled on Ubuntu.
+by the test harness (`tests/lib/harness.mjs`) for cleanup and is preinstalled
+on Ubuntu.
 
 **Headless browser:** Playwright is a devDependency and its Chromium binary
-lives under `~/.cache/ms-playwright/`. Use it via `scripts/screenshot-views.mjs`
-(see "Screenshot UI" below) — it boots an isolated server on a random port,
+lives under `~/.cache/ms-playwright/`. The result viewer is screenshotted via
+`scripts/screenshot-views.mjs` (see "Screenshot UI" below) and the admin UI is
+exercised by `tests/jump-to-matches.test.mjs`. The screenshot script boots an
+isolated server on a random port,
 seeds enough data to exercise the renderer, screenshots `/view/index.html` and
 `/view/knockout.html`, and writes PNGs to `debug/screenshots/`. Fastest way to
 catch a regression in the group-stage tree or the knockout bracket layout
@@ -38,7 +42,7 @@ without an operator in the loop.
 
 Limit: Playwright's Chromium needs a few apt libs that come from Ubuntu's
 defaults; if `chromium.launch()` throws about a missing `.so`, run
-`sudo npx playwright install-deps chromium` once. The driver does NOT do this
+`sudo npx playwright install-deps chromium` once. The harness does NOT do this
 itself — it'd prompt for sudo and break the no-interaction agent path.
 
 ## Setup
@@ -60,21 +64,25 @@ run. To wipe it: `rm -rf admin/data/`.
 ### Smoke the whole stack
 
 ```bash
-node .claude/skills/dev/driver.mjs
+node tests/run-all.mjs          # every tests/*.test.mjs, aggregated
+node tests/pairing.test.mjs     # or one slice on its own
 ```
 
-What it does — fully isolated, ~3 s, no AWS, no port collision with a `pnpm
-dev` the operator may already have running:
+`run-all.mjs` runs each `*.test.mjs` in its own process, serially, and exits
+nonzero if any fail. Each script — fully isolated, no AWS, no port collision
+with a `pnpm dev` the operator may already have running — does:
 
 1. Picks a random free port via `net.createServer().listen(0)`.
 2. Spawns `node_modules/.bin/tsx admin/src/index.ts` with `PORT=<random>`,
-   `TP_DATA_FILE=/tmp/tp-driver-XXX/tournament.json`, `TP_BUCKET=''`.
+   `TP_DATA_FILE=/tmp/tp-test-XXX/tournament.json`, `TP_BUCKET=''`.
 3. Polls `/api/state` until 200 (30 s deadline).
-4. Exercises the API end-to-end: rename → 4 participants → round-robin group
-   → `next-round` (asserts circle method → 2 matches) → mark a match
-   live→done (asserts `startedAt`/`finishedAt` stamping) → create a 4-slot
-   knockout → GET `/view/data/{version,groups,knockout}.json` (asserts
-   pre-computed standings) → check `/api/publish/status`.
+4. Seeds just its prerequisites and asserts on one feature area. Across the
+   suite: rename + participants (`participants`), round-robin group +
+   `next-round`/circle method (`pairing`), live→done scoring + timestamp
+   stamping (`scoring`), bracket create + odd-N byes (`knockout`),
+   `/view/data/{version,groups,knockout}.json` + pre-computed standings +
+   publish status (`views`), pending-log summaries + linear/all revert
+   (`pending`), and a Playwright tab-jump UI check (`jump-to-matches`).
 5. SIGKILLs the process group plus an `lsof -sTCP:LISTEN` backstop on the
    random port (the `tsx → node` grandchild escapes the spawn's pgroup —
    see Gotchas). `rm -rf` the temp dir.
@@ -82,15 +90,18 @@ dev` the operator may already have running:
 Expected tail:
 
 ```
-✓ all smoke checks passed
+✓ all 7 test scripts passed
 ```
 
-Exits 0 on success, 1 on any assertion fail with `✗ driver failed: …`.
+Each script exits 0 on success, 1 on any assertion fail with `✗ <name> failed: …`.
+
+The shared boot/seed/cleanup lives in `tests/lib/harness.mjs`; see
+`tests/README.md` for the per-script table.
 
 ### Long-running server for poking by hand or with curl
 
 ```bash
-node .claude/skills/dev/driver.mjs serve --port 38400
+node tests/serve.mjs --port 38400
 # admin   → http://localhost:38400/
 # viewer  → http://localhost:38400/view/
 # Ctrl-C to stop and clean the temp data dir.
@@ -108,8 +119,8 @@ node scripts/screenshot-views.mjs            # writes debug/screenshots/*.png
 node scripts/screenshot-views.mjs --keep     # leave the server running on a random port
 ```
 
-What it does — same isolation pattern as `driver.mjs` (random free port, temp
-`TP_DATA_FILE`, `TP_BUCKET=''`), but with a heavier seed: 5 categories x 1–2
+What it does — same isolation pattern as the test harness (random free port,
+temp `TP_DATA_FILE`, `TP_BUCKET=''`), but with a heavier seed: 5 categories x 1–2
 classes of participants, five groups (round-robin / swiss / manual mix), and
 three knockouts (4-, 8-, and 32-slot) so the 5-column overview tree, the
 inline ≤4-round bracket layout, and the 5-round 2+3 row split all render in
@@ -119,14 +130,13 @@ one shot. Playwright's Chromium drives `/view/index.html` and
 change `result-site/assets/render-*.js` or `app.css` — the diff against the
 previous PNG catches regressions an HTTP-only smoke can't.
 
-The script is intentionally separate from `driver.mjs`: the smoke driver
-stays fast (~3 s, no browser) for API correctness checks, and the screenshot
-script (~10 s on a cold Chromium launch) only runs when you need eyes on
-the rendered HTML.
+The script is intentionally separate from the API smokes: those stay fast
+(no browser) for API correctness checks, and the screenshot script (~10 s on a
+cold Chromium launch) only runs when you need eyes on the rendered HTML.
 
 ### Verbose mode
 
-`TP_DRIVER_VERBOSE=1 node .claude/skills/dev/driver.mjs`
+`TP_TEST_VERBOSE=1 node tests/run-all.mjs` (or any single `*.test.mjs`)
 echoes the Fastify per-request logs (helpful when an assertion fails and you
 need to see which response went wrong).
 
@@ -152,24 +162,33 @@ npm run dev      # tsx watch admin/src/index.ts → http://localhost:37325
 Default port 37325. Open the URL for the admin UI; `/view/` for the result
 viewer wired to the live data. The operator's normal workflow. Useless
 headless because all the value is the click-through UI — that's why the
-agent path uses `driver.mjs`.
+agent path uses the `tests/` harness.
 
 ## Test
 
+The full check gate is two commands — colocated unit tests, then the
+end-to-end harness:
+
 ```bash
-npx vitest run
-# expect: 3 files / 13 tests passed (round_robin + swiss + standings).
+npx vitest run        # unit: 3 files / 13 tests (round_robin + swiss + standings)
+node tests/run-all.mjs   # e2e: 7 *.test.mjs scripts against a real server
 ```
 
-These are pure unit tests covering pairing algorithms (circle method,
-no-rematch Swiss, bye rotation) and the standings tiebreaker authority
-(wins → set diff → point diff → h2h). Run them before changing any file
-under `admin/src/pairing/` or `admin/src/standings.ts`.
+`vitest` covers the pure logic — pairing algorithms (circle method, no-rematch
+Swiss, bye rotation) and the standings tiebreaker authority (wins → set diff →
+point diff → h2h). These live colocated as `admin/src/**/*.test.ts` and are
+discovered by `vitest.config.ts`; run them before changing any file under
+`admin/src/pairing/` or `admin/src/standings.ts`.
+
+`tests/run-all.mjs` covers the HTTP API + view derivation + a Playwright UI
+check end-to-end against a real Fastify boot (see "Smoke the whole stack" and
+`tests/README.md`). Run it before changing anything under `admin/src/routes/`
+or `admin/src/publish.ts`.
 
 ## Tech stack
 
 - **Runtime:** Node 20 LTS in production (the AWS SDK warns on 18). Node 18 is
-  fine for tests and the driver harness on this container.
+  fine for tests and the `tests/` harness on this container.
 - **Admin server:** Fastify 4, zod (schema + validation), `@fastify/static`,
   `@aws-sdk/client-s3`, `nanoid` (IDs), `csv-parse` (participant import).
 - **Persistence:** one `tournament.json`. `storage.ts` keeps an in-memory cache,
@@ -180,7 +199,7 @@ under `admin/src/pairing/` or `admin/src/standings.ts`.
   site is uploaded to S3 as-is.
 - **TS execution:** `tsx` runs `.ts` directly. `tsconfig.json` is `noEmit` —
   it exists only for IDE typing, there is no compile step in any workflow
-  (dev, tests, driver, or deploy).
+  (dev, tests, harness, or deploy).
 - **Tests:** Vitest, 13 tests across `round_robin` / `swiss` / `standings`.
   All passing on `main`.
 
@@ -209,9 +228,12 @@ result-site/                  static files for S3 (index.html + knockout.html + 
 deploy/                       cloudformation.yaml (bucket + tp-publisher IAM user + inline
                               publish policy) + publish-static.sh (sync result-site/ to S3) +
                               pack-portable.sh (Windows bundle). Only used for real S3
-                              provisioning; not exercised by driver.mjs.
-scripts/                      one-off TS helpers (import-ettlingen, migrate-split-category).
-                              Run with `node_modules/.bin/tsx scripts/<name>.ts`.
+                              provisioning; not exercised by the tests/ harness.
+scripts/                      one-off TS helpers (import-ettlingen, migrate-split-category) +
+                              screenshot tools. Run with `node_modules/.bin/tsx scripts/<name>.ts`.
+tests/                        end-to-end *.test.mjs harness scripts (run-all.mjs aggregates;
+                              serve.mjs for manual poking) + shared lib/harness.mjs. Unit tests
+                              stay colocated as admin/src/**/*.test.ts.
 ```
 
 Key invariants — break these and the project's design breaks:
@@ -245,8 +267,8 @@ The skill keeps the operational essentials. Reach for these when the question
 goes beyond running the app:
 
 - **`docs/API-endpoints.md`** — every HTTP route with its body shape. Read
-  before extending `driver.mjs` or curling a route the smoke flow doesn't
-  cover.
+  before adding a `tests/*.test.mjs` slice or curling a route the smoke flow
+  doesn't cover.
 - **`docs/Architecture.md`** — full S3 layout diagram, per-object
   `Cache-Control` budget, and the "why this shape" rationale (single operator
   + S3-only + offline-tolerant).
@@ -258,14 +280,14 @@ goes beyond running the app:
 ## Gotchas
 
 - **`tsx` forks a node grandchild that escapes the spawn's process group.**
-  `process.kill(-pid, 'SIGKILL')` doesn't reach it. `driver.mjs` works around
-  this with an `lsof -sTCP:LISTEN -t` backstop on its random port. If you
-  write your own launcher, expect to do the same.
-- **`lsof -ti tcp:PORT` includes client sockets** — i.e. your own driver's
+  `process.kill(-pid, 'SIGKILL')` doesn't reach it. `tests/lib/harness.mjs`
+  works around this with an `lsof -sTCP:LISTEN -t` backstop on its random port.
+  If you write your own launcher, expect to do the same.
+- **`lsof -ti tcp:PORT` includes client sockets** — i.e. your own harness's
   `fetch()` calls. Always add `-sTCP:LISTEN` or you'll kill yourself. The
-  driver hit this on an early iteration and printed `Killed`.
+  harness hit this on an early iteration and printed `Killed`.
 - **`pnpm dev` on port 37325 may already be running** when the agent starts.
-  `driver.mjs` therefore picks a random free port; don't hardcode 37325. If
+  The harness therefore picks a random free port; don't hardcode 37325. If
   you need to know whether the operator's instance is up, `curl -sf
   http://localhost:37325/api/state`.
 - **`PUT /api/state/name` requires `{ name }`,** not `{ tournament: { name }
@@ -281,15 +303,15 @@ goes beyond running the app:
 ## Troubleshooting
 
 - **`assertion failed: expected 4 participants, got 8`** — a previous server
-  is still bound to the port and the driver is hitting it instead of its own
-  spawn. Happened during development when an earlier driver process crashed
+  is still bound to the port and the harness is hitting it instead of its own
+  spawn. Happened during development when an earlier harness process crashed
   without cleanup. Fix: `pkill -9 -f 'admin/src/index.ts'` (preserve the
   operator's `tsx watch` by filtering with `grep -v watch`), then re-run.
 - **`server never came up`** within 30 s — usually a `tsx` startup error
-  showing on stderr (the driver forwards stderr verbatim with `[srv!]`).
-  Re-run with `TP_DRIVER_VERBOSE=1` to see all server logs.
-- **`EADDRINUSE` from the driver** — should be impossible (random port), but
+  showing on stderr (the harness forwards stderr verbatim with `[srv!]`).
+  Re-run with `TP_TEST_VERBOSE=1` to see all server logs.
+- **`EADDRINUSE` from a test script** — should be impossible (random port), but
   if it happens: stale orphan binding the chosen port. `lsof -i :<PORT>` to
   identify, `kill -KILL` it.
-- **Leftover `/tmp/tp-driver-*` dirs** after a hard kill of the driver —
-  `rm -rf /tmp/tp-driver-*` to sweep. Safe; each is single-use.
+- **Leftover `/tmp/tp-test-*` dirs** after a hard kill of a test script —
+  `rm -rf /tmp/tp-test-*` to sweep. Safe; each is single-use.
