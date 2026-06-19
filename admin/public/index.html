@@ -19,9 +19,10 @@
   <nav id="tabs">
     <a data-tab="participants" class="active">Participants</a>
     <a data-tab="groups">Groups</a>
-    <a data-tab="matches">Matches</a>
     <a data-tab="bracket">Bracket</a>
-    <a data-tab="pending">Pending</a>
+    <a data-tab="matches">Matches</a>
+    <a data-tab="upnext">Upnext</a>
+    <a data-tab="pending">Changes</a>
     <a data-tab="settings">Settings</a>
   </nav>
 
@@ -157,8 +158,12 @@
       <button type="button" class="floating-jump" data-jump-to="bracket-overview-card" title="Jump to overview">↑ Overview</button>
     </section>
 
+    <section data-tab="upnext">
+      <h2>Upnext</h2>
+    </section>
+
     <section data-tab="pending">
-      <h2>Pending changes</h2>
+      <h2>Changes</h2>
       <p class="hint">
         Every state change since the last successful publish, newest first. Click
         <strong>Revert from here</strong> to roll back to the state just before that
