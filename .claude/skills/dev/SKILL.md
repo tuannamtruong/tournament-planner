@@ -34,15 +34,16 @@ launcher rather than re-deriving this.
 
 ## Prerequisites
 
-System Node 18+ runs everything (vitest, tsx, the admin app):
+Node 20+ runs everything (vitest, tsx, the admin app):
 
 ```bash
-node --version   # v18.x or newer
+node --version   # v20.x or newer
 ```
 
-Node 20 is recommended in production only because the AWS SDK warns on 18; 18 is
-fine for all dev/test on this container. No `apt-get` packages needed — pure
-JS/TS. `lsof` (used by the harness for cleanup) is preinstalled on Ubuntu.
+Node 24 is the pinned baseline (`engines.node` in `app/package.json`, `app/.nvmrc`).
+The AWS SDK warns on older Node, and 18/20 are aging out, so use 24. No `apt-get`
+packages needed — pure JS/TS. `lsof` (used by the harness for cleanup) is
+preinstalled on Ubuntu.
 
 **Headless browser:** Playwright (a devDependency) backs the screenshot script
 and the `jump-to-matches` UI test. If `chromium.launch()` throws about a missing

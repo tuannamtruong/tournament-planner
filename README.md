@@ -73,7 +73,7 @@ Empty the bucket, delete the publisher access key in the console, then `make cfn
 
 | Piece | Role |
 |---|---|
-| **Node 20 + TypeScript (tsx)** | Runs the admin app directly — no build step. |
+| **Node 24 + TypeScript (tsx)** | Runs the admin app directly — no build step. |
 | **Fastify** | HTTP server for the admin API and the `/view/` dev mount of the result site. |
 | **`@fastify/static`** | Serves `app/admin/public/` (admin UI) and `app/result-site/` (local preview). |
 | **Zod** | Validates request bodies on every state-changing endpoint. |

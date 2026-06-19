@@ -2,6 +2,9 @@
   "name": "tournament-planner",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "tsx watch admin/src/index.ts",
     "start": "tsx admin/src/index.ts",
@@ -22,7 +25,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^24.0.0",
     "playwright": "^1.60.0",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",

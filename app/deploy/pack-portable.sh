@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-NODE_VERSION="${NODE_VERSION:-20.18.1}"
+NODE_VERSION="${NODE_VERSION:-24.17.0}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE="$HERE/.pack-cache"
 STAGE="$HERE/dist/tp-portable"
