@@ -13,6 +13,9 @@ There is no backend in AWS. The admin app derives view JSONs and PUTs them to S3
 
 | File | What's in it |
 |---|---|
+| [docs/Requirements.md](docs/Requirements.md) | Reverse-spec of the shipped app: stakeholders, hard constraints, functional + non-functional requirements, data model. |
+| [docs/Features.md](docs/Features.md) | Screen-by-screen feature walkthrough of the admin and result surfaces, with screenshots. |
+| [docs/Storyboard.md](docs/Storyboard.md) | Plain-language, scene-by-scene story of a tournament day for non-technical readers. |
 | [docs/Architecture.md](docs/Architecture.md) | System diagram and the rationale for each major design choice (local admin, JSON-as-DB, no CDN, refresh-based updates). |
 | [docs/Dev-deploy-test.md](docs/Dev-deploy-test.md) | Local dev workflow, CloudFormation deploy, the operator's edit → publish loop, tear-down, and the test matrix. |
 | [docs/API-endpoints.md](docs/API-endpoints.md) | HTTP API reference: `/api/state`, participants, groups, matches, knockout, publish, and the `/view/` dev preview mount. |
