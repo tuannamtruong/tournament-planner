@@ -36,15 +36,18 @@ Four roles interact with the system. They may collapse onto the same person at a
 
 ## Workflow
 
+> The runnable project lives in **`app/`** (source, `package.json`, `Makefile`, `.env`). Run all `pnpm`/`make` commands below from there — `cd app` first, or use `pnpm --prefix app …` / `make -C app …`. Only `README.md` and `docs/` live at the repo root.
+
 ### Dev
 
 ```bash
+cd app
 pnpm i
 pnpm dev        # admin on http://localhost:37325
 pnpm test       # vitest: pairing + standings
 ```
 
-Preview the spectator view against live data at `http://localhost:37325/view/` — the admin app mounts `result-site/` and serves the same derived `data/*.json` files S3 would. No S3 needed for local dev; leave `TP_BUCKET` unset and the publish loop becomes a no-op.
+Preview the spectator view against live data at `http://localhost:37325/view/` — the admin app mounts `app/result-site/` and serves the same derived `data/*.json` files S3 would. No S3 needed for local dev; leave `TP_BUCKET` unset and the publish loop becomes a no-op.
 
 ### Setup
 
@@ -58,7 +61,7 @@ Preview the spectator view against live data at `http://localhost:37325/view/` �
 
 ### Operatorional
 
-1. Operator edits in the admin UI locally → API mutates `tournament.json`, appends a pre-mutation snapshot to `admin/data/pending.json` → `pendingChanges` counter (= log length) bumps.
+1. Operator edits in the admin UI locally → API mutates `tournament.json`, appends a pre-mutation snapshot to `app/admin/data/pending.json` → `pendingChanges` counter (= log length) bumps.
 2. Header status light shows 🟡 pending. The **Pending** tab lists every unpublished change.
 3. Operator clicks **Publish** → admin derives `version.json` / `groups.json` / `knockout.json` and PUTs them to S3 in parallel; the pending log is cleared on success.
 4. Spectator browsers see the change the next time they refresh or reopen the page.
@@ -72,12 +75,12 @@ Empty the bucket, delete the publisher access key in the console, then `make cfn
 |---|---|
 | **Node 20 + TypeScript (tsx)** | Runs the admin app directly — no build step. |
 | **Fastify** | HTTP server for the admin API and the `/view/` dev mount of the result site. |
-| **`@fastify/static`** | Serves `admin/public/` (admin UI) and `result-site/` (local preview). |
+| **`@fastify/static`** | Serves `app/admin/public/` (admin UI) and `app/result-site/` (local preview). |
 | **Zod** | Validates request bodies on every state-changing endpoint. |
 | **csv-parse** | Parses the participant import CSV. |
 | **nanoid** | Generates IDs for participants, groups, matches, rounds. |
-| **JSON file (`admin/data/tournament.json`)** | Single source of truth. Atomic writes via tmp-file + rename. |
+| **JSON file (`app/admin/data/tournament.json`)** | Single source of truth. Atomic writes via tmp-file + rename. |
 | **`@aws-sdk/client-s3`** | PUTs derived view JSONs and backups to S3 on Publish. |
 | **S3 website hosting** | Hosts `index.html`, `knockout.html`, assets, and the `data/*.json` view files. No CloudFront, no ACM, no Route 53. |
-| **Vanilla HTML/CSS/JS** | Both the admin UI (`admin/public/`) and the result site (`result-site/`). No React, no bundler. |
+| **Vanilla HTML/CSS/JS** | Both the admin UI (`app/admin/public/`) and the result site (`app/result-site/`). No React, no bundler. |
 | **Vitest** | Tests for the pairing engines and the standings tiebreaker logic. |

@@ -9,6 +9,8 @@ Two surfaces, in different places:
 
 **There is no backend in AWS.** S3 stores static HTML/JS plus a handful of JSON files. No CloudFront, no ACM cert, no Route 53.
 
+> **Repo layout:** the entire runnable project lives under **`app/`** (`app/admin/`, `app/result-site/`, `app/scripts/`, `app/tests/`, `app/deploy/`, plus `package.json`, `Makefile`, `.env`). Only `README.md`, `CLAUDE.md`, and `docs/` sit at the repo root. Run all `pnpm`/`make` commands from `app/` (`cd app`, or `pnpm --prefix app …` / `make -C app …`). Paths below are written relative to the repo root, i.e. prefixed with `app/`.
+
 > **HTTP-only note:** the S3 website endpoint serves over plain HTTP. Browsers show "not secure" in the address bar. Acceptable for an event with no logins on the result site and no sensitive data. If trust UX matters later, front the bucket with CloudFront + ACM.
 
 ## Hard constraints
@@ -22,14 +24,14 @@ Two surfaces, in different places:
 
 ### Admin (`http://localhost:37325`)
 
-Single-page UI with tabbed sections in `admin/public/index.html`:
+Single-page UI with tabbed sections in `app/admin/public/index.html`:
 
 - **Participants** — add by form; paste CSV (columns `name, club, category, class, seed`); remove with confirmation. `category` is one of `MS | WS | MD | WD | MX`; `class` is one of `S | A | B | C | D` (skill bracket). Doubles entries are stored as a single row with both names joined by ` & ` and combined clubs.
 - **Groups** — create with `round_robin | swiss | manual` mode plus a single `category` and zero or more `classes` (multi-select; empty = any). The Add/remove-members checklist only shows participants whose `category` matches and whose `class` is in the group's class list, and hides anyone already assigned to a different group. Current members of this group always appear in their own checklist so ticking never makes a row disappear, and the panel keeps its open/closed state across the refresh triggered by each tick.
 - **Pairings** — for round-robin / Swiss groups, one button generates the next round respecting history (Swiss won't repeat opponents; round-robin walks the circle-method schedule).
 - **Scoring** — best-of-3 set scores per match, with court label, **▶ live** / **✓ done** buttons that auto-stamp `startedAt` / `finishedAt`. For `manual` groups, an inline form adds matches between any two members in any round.
 - **Bracket** — create a 4/8/16/32-slot knockout, seeded from participants' `seed` field (standard 1-vs-N-, 4-vs-N-3-style positions). Enter set scores in a slot and click the winner; the winner is auto-propagated to the next round's slot.
-- **Pending** — every state-changing API call appends an entry to `admin/data/pending.json` along with a full pre-mutation snapshot of `tournament.json`. The tab lists those entries newest-first with a server-rendered summary.
+- **Pending** — every state-changing API call appends an entry to `app/admin/data/pending.json` along with a full pre-mutation snapshot of `tournament.json`. The tab lists those entries newest-first with a server-rendered summary.
 - **Settings** — rename the tournament. Manual **Push backup snapshot** button. Live JSON dump of the publish-status object for debugging.
 - **Header status light** — 🟢 synced / 🟡 pending or pushing / 🟡 "AWS not configured" / 🔴 push failed (no auto-retry — click again). **Publish** button next to it.
 
@@ -42,7 +44,7 @@ Single-page UI with tabbed sections in `admin/public/index.html`:
 
 ## Pairing modes
 
-Strategy interface: `generateNextRound(group) → Round` in `admin/src/pairing/index.ts`.
+Strategy interface: `generateNextRound(group) → Round` in `app/admin/src/pairing/index.ts`.
 
 - **Round robin** (`round_robin.ts`) — circle method. N members → N-1 rounds (even) or N rounds (odd, with byes). Fully deterministic.
 - **Swiss** (`swiss.ts`) — rank by current points (wins so far), pair greedily with backtracking, never repeat an opponent. Lowest-ranked unbyed player gets the bye on odd counts; falls back to last player if everyone has had a bye. Throws if no rematch-free pairing exists.

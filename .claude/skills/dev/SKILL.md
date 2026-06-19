@@ -7,7 +7,8 @@ allowed-tools: Bash(curl:*), Bash(ping:*), Bash(node:*), Bash(lsof:*)
 A local Node + Fastify admin app on `http://localhost:37325` that owns
 `admin/data/tournament.json` (zod-validated source of truth) and derives the
 result JSONs the S3-website-hosted result site fetches on page load. One repo,
-no build step, no hosted backend. All paths below are relative to the repo root.
+no build step, no hosted backend. The runnable project lives in **`app/`** —
+`cd app` first; all paths and commands below are relative to that directory.
 
 Drive it via the `tests/` harness. `node tests/run-all.mjs` walks the full
 lifecycle (rename → participants → group → next-round → score → knockout →

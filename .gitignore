@@ -1,5 +1,5 @@
 node_modules/
-admin/data/
+app/admin/data/
 .env*
 !.env.example
 *.log
@@ -7,4 +7,4 @@ admin/data/
 dist/
 coverage/
 .pack-cache/
-debug/screenshots/
+app/debug/screenshots/

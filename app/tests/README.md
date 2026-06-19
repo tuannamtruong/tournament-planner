@@ -9,7 +9,7 @@ running `npm run dev`), seeds just the data it needs over the HTTP API, asserts,
 and cleans up. Exit 0 = pass, 1 = fail. The shared boot/seed/cleanup lives in
 [`lib/harness.mjs`](lib/harness.mjs).
 
-Run from the **repo root** so `tsx` and Playwright resolve from `node_modules`.
+Run from the **`app/` directory** (the project root) so `tsx` and Playwright resolve from `node_modules`.
 
 ```bash
 node tests/run-all.mjs            # run every *.test.mjs, aggregate, exit 0/1
