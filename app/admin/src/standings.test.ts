@@ -3,7 +3,7 @@ import { computeStandings } from './standings.ts';
 import type { Group, Participant } from './schema.ts';
 
 const part = (id: string, name: string): Participant => ({
-  id, name, club: '', category: '', seed: 0, withdrawn: false,
+  id, name, club: '', category: '', class: '', seed: 0, withdrawn: false,
 });
 
 const match = (
@@ -25,7 +25,7 @@ describe('computeStandings', () => {
   it('ranks by match wins first', () => {
     const participants = ['a', 'b', 'c'].map(id => part(id, id.toUpperCase()));
     const group: Group = {
-      id: 'g', name: 'G', mode: 'round_robin',
+      id: 'g', name: 'G', category: '', classes: [], mode: 'round_robin',
       members: ['a', 'b', 'c'],
       rounds: [{
         roundNo: 1,
@@ -45,7 +45,7 @@ describe('computeStandings', () => {
   it('breaks ties on set difference', () => {
     const participants = ['a', 'b', 'c'].map(id => part(id, id.toUpperCase()));
     const group: Group = {
-      id: 'g', name: 'G', mode: 'round_robin',
+      id: 'g', name: 'G', category: '', classes: [], mode: 'round_robin',
       members: ['a', 'b', 'c'],
       rounds: [{
         roundNo: 1,
@@ -66,7 +66,7 @@ describe('computeStandings', () => {
   it('uses head-to-head as final tiebreaker when sets and points are equal', () => {
     const participants = ['a', 'b'].map(id => part(id, id.toUpperCase()));
     const group: Group = {
-      id: 'g', name: 'G', mode: 'round_robin',
+      id: 'g', name: 'G', category: '', classes: [], mode: 'round_robin',
       members: ['a', 'b'],
       rounds: [{
         roundNo: 1,
@@ -81,7 +81,7 @@ describe('computeStandings', () => {
   it('ignores pending matches', () => {
     const participants = [part('a', 'A'), part('b', 'B')];
     const group: Group = {
-      id: 'g', name: 'G', mode: 'round_robin',
+      id: 'g', name: 'G', category: '', classes: [], mode: 'round_robin',
       members: ['a', 'b'],
       rounds: [{
         roundNo: 1,
@@ -99,7 +99,7 @@ describe('computeStandings', () => {
   it('credits walkover wins without set/point delta', () => {
     const participants = [part('a', 'A'), part('b', 'B')];
     const group: Group = {
-      id: 'g', name: 'G', mode: 'round_robin',
+      id: 'g', name: 'G', category: '', classes: [], mode: 'round_robin',
       members: ['a', 'b'],
       rounds: [{
         roundNo: 1,
@@ -122,7 +122,7 @@ describe('computeStandings', () => {
       part('c', 'C'),
     ];
     const group: Group = {
-      id: 'g', name: 'G', mode: 'round_robin',
+      id: 'g', name: 'G', category: '', classes: [], mode: 'round_robin',
       members: ['a', 'b', 'c'],
       rounds: [{
         roundNo: 1,

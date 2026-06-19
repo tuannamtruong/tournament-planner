@@ -41,7 +41,10 @@ type Mutator = (state: TournamentT) => TournamentT | Promise<TournamentT>;
  * receives a deep clone so it can mutate freely; the result is validated and
  * written via temp-file + rename. Returns the new state.
  */
-export async function mutate(audit: Omit<AuditEntry, 'ts'>, fn: Mutator): Promise<TournamentT> {
+export async function mutate(
+  audit: Omit<AuditEntry, 'ts' | 'target'> & { target?: string },
+  fn: Mutator,
+): Promise<TournamentT> {
   const result = writeChain.then(async () => {
     const current = await load();
     const preMutation = structuredClone(current);
@@ -49,7 +52,7 @@ export async function mutate(audit: Omit<AuditEntry, 'ts'>, fn: Mutator): Promis
     const next = await fn(draft);
     const ts = new Date().toISOString();
     next.tournament.updatedAt = ts;
-    next.auditLog.push({ ts, ...audit });
+    next.auditLog.push({ ts, target: '', ...audit });
     if (next.auditLog.length > 5000) next.auditLog.splice(0, next.auditLog.length - 5000);
     const validated = Tournament.parse(next);
     await writeAtomic(validated);
