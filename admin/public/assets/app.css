@@ -492,6 +492,7 @@ details.matches-section > summary {
   100% { background: transparent; }
 }
 .bracket-match.flash { animation: match-flash 1.4s ease-out; }
+.card.flash { animation: match-flash 1.4s ease-out; }
 
 input.score { -moz-appearance: textfield; appearance: textfield; }
 input.score::-webkit-inner-spin-button,
@@ -526,6 +527,8 @@ pre { background: #f3f4f6; padding: 0.75rem; border-radius: 4px; overflow: auto;
 .standings th, .standings td { padding: 0.35rem 0.5rem; font-size: 0.85rem; }
 .standings td.num, .standings th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .standings tr.top-pts td { background: #f0fdf4; }
+.standings-clickable { cursor: pointer; }
+.standings-clickable:hover { outline: 2px solid #c7d2fe; outline-offset: 1px; }
 
 .h2h { font-size: 0.8rem; width: auto; }
 .h2h th, .h2h td { padding: 0.3rem 0.5rem; text-align: center; font-variant-numeric: tabular-nums; }

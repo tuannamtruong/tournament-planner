@@ -138,12 +138,7 @@ async function refresh() {
 // -- Tabs ---------------------------------------------------------------------
 const TAB_STORAGE_KEY = 'tp.activeTab';
 $$('nav#tabs a').forEach(a => {
-  a.addEventListener('click', () => {
-    const name = a.dataset.tab;
-    try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch {}
-    $$('nav#tabs a').forEach(x => x.classList.toggle('active', x === a));
-    $$('section[data-tab]').forEach(s => s.classList.toggle('active', s.dataset.tab === name));
-  });
+  a.addEventListener('click', () => activateTab(a.dataset.tab));
 });
 try {
   const saved = localStorage.getItem(TAB_STORAGE_KEY);
@@ -1083,10 +1078,46 @@ function computeStandings(g) {
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
+// Switch to the Matches tab and scroll to this group's matches card.
+function jumpToGroupMatches(g) {
+  activateTab('matches');
+  requestAnimationFrame(() => {
+    const card = document.getElementById(`matches-group-${g.id}`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.classList.remove('flash');
+    void card.offsetWidth; // restart the animation
+    card.classList.add('flash');
+  });
+}
+
+function jumpToGroupMatch(g, m) {
+  activateTab('matches');
+  // Force the right section open (matches split into pending/done, and the
+  // Done section is collapsed by default).
+  const key = `${g.id}:${m.status === 'done' ? 'done' : 'pending'}`;
+  matchesSectionsOpen.add(key);
+  matchesSectionsClosed.delete(key);
+  renderMatches();
+  // Wait a tick for the DOM to settle, then scroll + flash.
+  requestAnimationFrame(() => {
+    const row = document.getElementById(`group-match-${m.id}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash');
+    void row.offsetWidth; // restart the animation
+    row.classList.add('flash');
+  });
+}
+
 function renderStandingsTable(g) {
   const rows = computeStandings(g);
   if (rows.length === 0) return el('p', { class: 'muted' }, 'No members yet.');
-  return el('table', { class: 'standings' },
+  return el('table', {
+    class: 'standings standings-clickable',
+    title: 'Show matches for this group',
+    on: { click: () => jumpToGroupMatches(g) },
+  },
     el('thead', {}, el('tr', {},
       el('th', { class: 'num' }, '#'),
       el('th', {}, 'Player'),
@@ -1127,7 +1158,11 @@ function renderGroupstageMatchRow(g, m) {
 
   if (m.walkover) {
     const rows = buildWalkoverRows(nameOf(m.p1), nameOf(m.p2), m.walkover, 1);
-    return el('div', { class: 'bracket-match walkover ' + m.status },
+    return el('div', {
+      class: 'bracket-match walkover clickable ' + m.status,
+      title: 'Open in Matches tab',
+      on: { click: () => jumpToGroupMatch(g, m) },
+    },
       seedCell,
       el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.walkoverGrp}` }, ...rows),
       el('span', { class: 'status ' + m.status, style: 'padding:0.3rem 0.6rem' }, m.status),
@@ -1184,7 +1219,11 @@ function renderGroupstageMatchRow(g, m) {
       } } }, 'Edit'))
     : el('div', { class: 'bm-action' });
 
-  return el('div', { class: 'bracket-match ' + m.status },
+  return el('div', {
+    class: 'bracket-match clickable ' + m.status,
+    title: 'Open in Matches tab',
+    on: { click: (e) => { if (e.target.closest('button, input, select')) return; jumpToGroupMatch(g, m); } },
+  },
     seedCell,
     el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.readOnly} auto` },
       el('div', { class: 'bm-row' + (p1Win ? ' winner' : '') },
@@ -1652,8 +1691,9 @@ function renderKnockoutMatchRow(kb, roundNo, slot) {
 }
 
 function renderMatchRow(g, m) {
+  const rowId = `group-match-${m.id}`;
   if (m.p2 === '__bye__') {
-    return el('div', { class: 'bracket-match match-bye' },
+    return el('div', { class: 'bracket-match match-bye', id: rowId },
       el('div', { class: 'bm-seed' }, ''),
       el('div', { class: 'bm-rows', style: `grid-template-columns: ${GRID.readOnly}` },
         el('div', { class: 'bm-row' }, el('div', { class: 'bm-name' }, nameOf(m.p1))),
@@ -1676,7 +1716,7 @@ function renderMatchRow(g, m) {
   if (m.walkover) {
     const winnerName = m.walkover === 'p1' ? nameOf(m.p1) : nameOf(m.p2);
     const woRows = buildWalkoverRows(nameOf(m.p1), nameOf(m.p2), m.walkover, 1);
-    return el('div', { class: 'bracket-match walkover' },
+    return el('div', { class: 'bracket-match walkover', id: rowId },
       el('div', { class: 'bm-seed bm-court' }, courtInput,
         el('button', { class: 'ghost bm-remove', title: 'Clear walkover', on: { click: clearWalkover } }, '↺'),
       ),
@@ -1732,7 +1772,7 @@ function renderMatchRow(g, m) {
   );
   attachScoreValidation(rows);
 
-  return el('div', { class: 'bracket-match ' + m.status },
+  return el('div', { class: 'bracket-match ' + m.status, id: rowId },
     el('div', { class: 'bm-seed bm-court' },
       courtInput,
       el('button', { class: 'ghost bm-remove', title: 'Remove match', on: { click: remove } }, '✕'),
