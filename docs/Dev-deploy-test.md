@@ -165,7 +165,7 @@ aws cloudformation delete-stack --stack-name tp-result
 | `admin/src/pairing/index.test.ts` | withdrawal handling in `generateNextRound`: withdrawn players are skipped without breaking the schedule |
 | `admin/src/standings.test.ts` | wins-first ordering; tied-on-wins broken by set diff; head-to-head as final tiebreaker; pending matches ignored |
 
-End-to-end smoke runs out of band via `node .claude/skills/dev/driver.mjs` — it boots a real Fastify on a random port against a temp `TP_DATA_FILE` and walks the full lifecycle (rename → participants → group → next-round → score → bracket → /view JSONs → pending log + linear-undo). Run it before touching anything in `admin/src/routes/`.
+End-to-end smoke runs out of band via `node tests/run-all.mjs` — each `tests/*.test.mjs` boots a real Fastify on a random port against a temp `TP_DATA_FILE` and asserts one feature area; together they walk the full lifecycle (rename → participants → group → next-round → score → bracket → /view JSONs → pending log + linear-undo, plus a Playwright tab-jump UI check). Run it before touching anything in `admin/src/routes/`. See `tests/README.md` for the per-script table.
 
 Add new tests when changing pairing or standings logic. Other modules (CRUD routes, UI) are fine without tests.
 
