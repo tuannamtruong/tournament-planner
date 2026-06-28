@@ -10,6 +10,7 @@ const CreateBracket = z.object({
   classes: z.array(z.string()).min(1),
   size: z.number().int().min(2),         // requested player count; rounded up to next power of 2
   seeds: z.array(z.string()).default([]), // ordered participant IDs; gaps become BYE
+  pointSystemId: z.string().nullable().default(null),
 });
 
 const PatchRound = z.object({
@@ -42,7 +43,7 @@ export function defaultRoundName(slots: number): string {
   return `Round of ${slots * 2}`;
 }
 
-function emptyBracket(meta: { id: string; name: string; category: string; classes: string[] }, slotCount: number): Bracket {
+function emptyBracket(meta: { id: string; name: string; category: string; classes: string[]; pointSystemId: string | null }, slotCount: number): Bracket {
   const rounds: BracketRound[] = [];
   let slots = slotCount / 2;
   let roundNo = 1;
@@ -95,7 +96,7 @@ export async function knockoutRoutes(app: FastifyInstance) {
     return mutate(
       { action: 'create_bracket', target: id, payload: { name: body.name, category: body.category, classes: body.classes, size: body.size, slotCount } },
       (s) => {
-        const kb = emptyBracket({ id, name: body.name, category: body.category, classes: body.classes }, slotCount);
+        const kb = emptyBracket({ id, name: body.name, category: body.category, classes: body.classes, pointSystemId: body.pointSystemId }, slotCount);
         const order = seedOrder(slotCount);
         const firstRound = kb.rounds[0];
         for (let i = 0; i < order.length; i++) {

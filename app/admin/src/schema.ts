@@ -41,6 +41,42 @@ export const Registrant = z.object({
 });
 export type Registrant = z.infer<typeof Registrant>;
 
+// A named point system. A set is won at `pointsPerSet` with a 2-point lead, then
+// play continues at deuce until a 2-point lead OR the cap `maxPointsPerSet` is
+// reached (where a 1-point win settles it). The deciding set (3rd set of a
+// best-of-3) can use a different target/cap. Drives the scoring UI's winner
+// auto-fill + set validation only — the server still accepts any non-negative
+// integers so the operator can override.
+export const PointSystem = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  pointsPerSet: z.number().int().positive().default(21),
+  maxPointsPerSet: z.number().int().positive().default(30),
+  deciderPoints: z.number().int().positive().default(21),
+  deciderMaxPoints: z.number().int().positive().default(30),
+});
+export type PointSystem = z.infer<typeof PointSystem>;
+
+// The library of point systems defined in the Settings tab, plus the id of the
+// tournament-wide default. A group or bracket may override the default by
+// referencing another system's id (see Group/Bracket.pointSystemId).
+export const Scoring = z.object({
+  systems: z.array(PointSystem).min(1),
+  defaultId: z.string(),
+});
+export type Scoring = z.infer<typeof Scoring>;
+
+// Seed for a fresh tournament: a BWF default plus a 15-point alternative.
+export function defaultScoring(): Scoring {
+  return {
+    systems: [
+      { id: 'ps-default', name: 'Default (21)', pointsPerSet: 21, maxPointsPerSet: 30, deciderPoints: 21, deciderMaxPoints: 30 },
+      { id: 'ps-15', name: '15 point', pointsPerSet: 15, maxPointsPerSet: 21, deciderPoints: 15, deciderMaxPoints: 21 },
+    ],
+    defaultId: 'ps-default',
+  };
+}
+
 export const MatchStatus = z.enum(['pending', 'live', 'done']);
 export type MatchStatus = z.infer<typeof MatchStatus>;
 
@@ -81,6 +117,8 @@ export const Group = z.object({
   mode: GroupMode,
   category: z.string().default(''),
   classes: z.array(z.string()).default([]),
+  // null = use the tournament default point system; otherwise a PointSystem id.
+  pointSystemId: z.string().nullable().default(null),
   members: z.array(z.string()),
   rounds: z.array(Round).default([]),
 });
@@ -120,6 +158,8 @@ export const Bracket = z.object({
   name: z.string().min(1),
   category: z.string().default(''),
   classes: z.array(z.string()).default([]),
+  // null = use the tournament default point system; otherwise a PointSystem id.
+  pointSystemId: z.string().nullable().default(null),
   size: z.number().int().positive(),
   rounds: z.array(BracketRound),
 });
@@ -156,6 +196,19 @@ export const Tournament = z.preprocess((raw) => {
     }
     delete obj.knockout;
   }
+  // Migrate the earlier flat scoring shape { pointsPerSet, maxPointsPerSet, ... }
+  // into the point-system library: the old values become the "Default" system,
+  // plus a seeded 15-point alternative.
+  const sc = obj.scoring as Record<string, unknown> | undefined;
+  if (sc && typeof sc === 'object' && !Array.isArray(sc) && sc.systems === undefined) {
+    obj.scoring = {
+      systems: [
+        { id: 'ps-default', name: 'Default', pointsPerSet: sc.pointsPerSet ?? 21, maxPointsPerSet: sc.maxPointsPerSet ?? 30, deciderPoints: sc.deciderPoints ?? 21, deciderMaxPoints: sc.deciderMaxPoints ?? 30 },
+        { id: 'ps-15', name: '15 point', pointsPerSet: 15, maxPointsPerSet: 21, deciderPoints: 15, deciderMaxPoints: 21 },
+      ],
+      defaultId: 'ps-default',
+    };
+  }
   // Migrate legacy participant shape { name, club } → { players[] }. Old doubles
   // rows ("A & B") split into two players; the combined `club` is dropped (club
   // is now per-person in `registrants`, re-entered via the UI). Group/bracket
@@ -182,6 +235,8 @@ export const Tournament = z.preprocess((raw) => {
   participants: z.array(Participant).default([]),
   // Per-person check-in + fee state, keyed by normalised person name. See Registrant.
   registrants: z.record(z.string(), Registrant).default({}),
+  // Point-system library + tournament default. Old files without it get seeded.
+  scoring: Scoring.default(defaultScoring),
   groups: z.array(Group).default([]),
   knockouts: z.array(Bracket).default([]),
   auditLog: z.array(AuditEntry).default([]),

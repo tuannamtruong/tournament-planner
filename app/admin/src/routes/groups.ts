@@ -10,6 +10,7 @@ const NewGroup = z.object({
   mode: GroupMode,
   category: z.string().min(1),
   classes: z.array(z.string()).min(1),
+  pointSystemId: z.string().nullable().default(null),
   members: z.array(z.string()).default([]),
 });
 

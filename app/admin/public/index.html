@@ -113,6 +113,9 @@
                 <option value="swiss">Swiss</option>
                 <option value="manual">Manual</option>
               </select>
+              <select name="pointSystem" title="Point system">
+                <option value="">Default points</option>
+              </select>
               <div class="form-break"></div>
               <input name="name" placeholder="Group name (auto)" required>
               <button type="submit">Create group</button>
@@ -267,6 +270,20 @@
         </label>
         <button type="submit">Save</button>
       </form>
+      <div class="settings-group">
+        <h3>Point systems</h3>
+        <p class="hint">Define how sets are scored. Per set: <strong>points</strong> to win and the <strong>max</strong> (deuce cap); the deciding 3rd set can differ. Mark one system as the tournament <strong>default</strong>; each group and bracket uses it unless it overrides. When scoring, the operator enters the loser's points and the winner auto-fills by the system — you can still type any score to override.</p>
+        <div id="point-systems"></div>
+        <datalist id="points-to-win-options">
+          <option value="21">21 (BWF)</option>
+          <option value="15">15</option>
+          <option value="11">11</option>
+        </datalist>
+        <div class="row" style="gap:0.5rem; margin-top:0.5rem">
+          <button type="button" id="add-point-system" class="ghost">+ Add system</button>
+          <button type="button" id="save-point-systems">Save point systems</button>
+        </div>
+      </div>
       <div class="settings-group">
         <h3>Check-in</h3>
         <button id="mark-all-present" type="button">Set all participants present</button>

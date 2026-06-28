@@ -135,7 +135,23 @@ async function refresh() {
   renderPrint();
   const nameInput = $('#add-group')?.elements.name;
   if (nameInput && document.activeElement !== nameInput) syncDefaultGroupName();
+  renderPointSystems();
+  syncGroupPointSystemOptions();
   scheduleStripUpdate();
+}
+
+// Populate the group form's "point system" select from the saved library.
+function syncGroupPointSystemOptions() {
+  const sel = $('#add-group select[name="pointSystem"]');
+  if (!sel) return;
+  const cur = sel.value;
+  const sc = state.scoring;
+  const opts = [el('option', { value: '' }, 'Default points')];
+  for (const s of (sc?.systems ?? [])) {
+    opts.push(el('option', { value: s.id, ...(s.id === cur ? { selected: true } : {}) },
+      s.name + (s.id === sc.defaultId ? ' (default)' : '')));
+  }
+  sel.replaceChildren(...opts);
 }
 
 // -- Tabs ---------------------------------------------------------------------
@@ -1581,6 +1597,7 @@ $('#add-group').addEventListener('submit', async (e) => {
     mode: fd.get('mode'),
     category: fd.get('category') || '',
     classes: [...fd.getAll('classes')].map(String),
+    pointSystemId: fd.get('pointSystem') || null,
     members: [],
   });
   e.target.reset();
@@ -1629,6 +1646,7 @@ $('#auto-generate-groups').addEventListener('click', async () => {
   const category = fd.get('category') || '';
   const selectedClasses = [...fd.getAll('classes')].map(String);
   const mode = fd.get('mode') || 'round_robin';
+  const pointSystemId = fd.get('pointSystem') || null;
   const playersPerGroup = Number(fd.get('playersPerGroup') || 0);
 
   const missing = groupFormMissing();
@@ -1690,7 +1708,7 @@ $('#auto-generate-groups').addEventListener('click', async () => {
   if (!confirm(`Create ${plans.length} group(s)?\n\n${lines.join('\n')}${tail}`)) return;
 
   for (const p of plans) {
-    await post('/api/groups', { name: p.name, mode, category, classes: p.classes, members: p.memberIds });
+    await post('/api/groups', { name: p.name, mode, category, classes: p.classes, pointSystemId, members: p.memberIds });
   }
   await refresh();
   syncDefaultGroupName();
@@ -1957,7 +1975,7 @@ function renderGroupstageMatchRow(g, m) {
         el('div', { class: 'bm-action' }, el('button', { class: 'ghost', on: { click: cancel } }, 'Cancel')),
       ),
     );
-    attachScoreValidation(rows);
+    attachScoreValidation(rows, pointSystemFor(g));
 
     async function save() {
       const score = readScoreFromContainer(rows);
@@ -2089,51 +2107,114 @@ function renderGroupstage() {
   }));
 }
 
-// -- Set score validation ----------------------------------------------------
-// Badminton: a set is won at 21 with a 2-point lead, capped at 30 (so 30–28
-// or 30–29 are the only valid extra-play endings). Pure UI feedback — the
-// server accepts any non-negative integers.
-function setPairBadness(a, b) {
-  const aBad = a != null && (a < 0 || a > 30);
-  const bBad = b != null && (b < 0 || b > 30);
+// -- Point systems + set score validation + winner auto-fill -----------------
+// Badminton: a game is won at `target` points with a 2-point lead, then capped —
+// at deuce play continues until one side leads by 2, but no further than `cap`,
+// where a 1-point win settles it. Point systems are defined in the Settings tab
+// (state.scoring.systems); one is the tournament default and a group/bracket may
+// override it. The deciding set (3rd of a best-of-3) may use its own target/cap.
+// Pure UI feedback + convenience — the server accepts any non-negative integers,
+// and the operator can override the auto-filled score.
+const DEFAULT_SYSTEM = { pointsPerSet: 21, maxPointsPerSet: 30, deciderPoints: 21, deciderMaxPoints: 30 };
+
+function defaultPointSystem() {
+  const sc = state?.scoring;
+  if (!sc?.systems?.length) return DEFAULT_SYSTEM;
+  return sc.systems.find(s => s.id === sc.defaultId) ?? sc.systems[0];
+}
+
+// Resolve the point system for a group/bracket: its override if set and still
+// present, else the tournament default.
+function pointSystemFor(entity) {
+  const sc = state?.scoring;
+  if (!sc?.systems?.length) return DEFAULT_SYSTEM;
+  if (entity?.pointSystemId) {
+    const found = sc.systems.find(s => s.id === entity.pointSystemId);
+    if (found) return found;
+  }
+  return defaultPointSystem();
+}
+
+// The { target, cap } that apply to set #idx (0-based) under `system`. idx ≥ 2
+// is the decider.
+function setRules(system, idx) {
+  const s = system ?? DEFAULT_SYSTEM;
+  return idx >= 2
+    ? { target: s.deciderPoints, cap: s.deciderMaxPoints }
+    : { target: s.pointsPerSet, cap: s.maxPointsPerSet };
+}
+
+// Given a loser's score, the winner's score implied by the rules above.
+function winnerScore(loser, target, cap) {
+  if (!Number.isFinite(loser) || loser < 0) return null;
+  if (loser <= target - 2) return target;          // straight game
+  return Math.min(loser + 2, cap);                 // deuce, clamped to cap
+}
+
+function setPairBadness(a, b, target, cap) {
+  const aBad = a != null && (a < 0 || a > cap);
+  const bBad = b != null && (b < 0 || b > cap);
   let pairBad = false;
   if (a != null && b != null && !aBad && !bBad) {
     const max = Math.max(a, b), min = Math.min(a, b);
-    if (max >= 21) {
-      if (max === 21) pairBad = min > 19;
-      else if (max < 30) pairBad = min !== max - 2;
-      else pairBad = min !== 28 && min !== 29;
+    if (max >= target) {
+      if (max === target) pairBad = min > target - 2;          // straight: loser ≤ target-2
+      else if (max < cap) pairBad = min !== max - 2;           // deuce: win by exactly 2
+      else pairBad = min !== cap - 2 && min !== cap - 1;       // at cap: win by 1 or 2
     }
   }
   return { aBad, bBad, pairBad };
 }
 
-const INVALID_MSG = 'Invalid badminton set: win by 2 at 21, max 30.';
+const invalidMsg = (target, cap) => `Invalid badminton set: win by 2 at ${target}, max ${cap}.`;
 
-function validateScoreInputs(container) {
+function validateScoreInputs(container, system) {
   const groups = {};
   container.querySelectorAll('input.score').forEach(inp => {
     const idx = inp.dataset.idx;
     (groups[idx] ??= {})[inp.dataset.side] = inp;
   });
-  for (const { a, b } of Object.values(groups)) {
+  for (const [idx, { a, b }] of Object.entries(groups)) {
     if (!a || !b) continue;
+    const { target, cap } = setRules(system, Number(idx));
     const av = a.value === '' ? null : Number(a.value);
     const bv = b.value === '' ? null : Number(b.value);
-    const { aBad, bBad, pairBad } = setPairBadness(av, bv);
+    const { aBad, bBad, pairBad } = setPairBadness(av, bv, target, cap);
     const aMark = aBad || pairBad, bMark = bBad || pairBad;
+    const msg = invalidMsg(target, cap);
     a.classList.toggle('invalid', aMark);
     b.classList.toggle('invalid', bMark);
-    if (aMark) a.title = INVALID_MSG; else a.removeAttribute('title');
-    if (bMark) b.title = INVALID_MSG; else b.removeAttribute('title');
+    if (aMark) a.title = msg; else a.removeAttribute('title');
+    if (bMark) b.title = msg; else b.removeAttribute('title');
   }
 }
 
-function attachScoreValidation(container) {
+// Auto-fill convention: the operator enters the LOSER's score first; the empty
+// sibling cell is filled with the winner's score implied by that set's rules.
+// Only fires when the sibling is still empty (so a manual override is never
+// clobbered) and the typed value is a plausible loser score. Runs on `change`
+// (blur/Enter) so it doesn't fight mid-typing.
+function autoFillWinner(inp, container, system) {
+  const idx = inp.dataset.idx;
+  const sibSide = inp.dataset.side === 'a' ? 'b' : 'a';
+  const sib = container.querySelector(`input[data-idx="${idx}"][data-side="${sibSide}"]`);
+  if (!sib || sib.value !== '' || inp.value === '') return;
+  const { target, cap } = setRules(system, Number(idx));
+  const loser = Number(inp.value);
+  const w = winnerScore(loser, target, cap);
+  if (w == null || loser > cap - 2) return;  // not a plausible loser score
+  sib.value = String(w);
+}
+
+function attachScoreValidation(container, system) {
   container.querySelectorAll('input.score').forEach(inp => {
-    inp.addEventListener('input', () => validateScoreInputs(container));
+    inp.addEventListener('input', () => validateScoreInputs(container, system));
+    inp.addEventListener('change', () => {
+      autoFillWinner(inp, container, system);
+      validateScoreInputs(container, system);
+    });
   });
-  validateScoreInputs(container);
+  validateScoreInputs(container, system);
 }
 
 // -- Matches ------------------------------------------------------------------
@@ -2461,7 +2542,7 @@ function renderKnockoutMatchRow(kb, roundNo, slot) {
       woCell('p2', slot.p2),
     ),
   );
-  attachScoreValidation(rows);
+  attachScoreValidation(rows, pointSystemFor(kb));
 
   return el('div', { class: 'bracket-match ' + slot.status, id },
     el('div', { class: 'bm-seed bm-court' }, courtInput),
@@ -2549,7 +2630,7 @@ function renderMatchRow(g, m) {
       p2WO,
     ),
   );
-  attachScoreValidation(rows);
+  attachScoreValidation(rows, pointSystemFor(g));
 
   return el('div', { class: 'bracket-match ' + m.status, id: rowId },
     el('div', { class: 'bm-seed bm-court' },
@@ -2595,6 +2676,7 @@ $('#open-bracket-wizard').addEventListener('click', () => {
     category: '',
     classes: [],
     size: 8,
+    pointSystemId: '',    // '' = tournament default
     seeds: [],            // ordered list of participant IDs
     sort: { key: 'rank', dir: 'asc' },
     filter: '',
@@ -2742,10 +2824,17 @@ function renderBracketWizard() {
     renderBracketWizard();
   });
 
+  const psSelect = el('select', { on: { change: (e) => { w.pointSystemId = e.target.value; } } },
+    el('option', { value: '', ...(w.pointSystemId === '' ? { selected: true } : {}) }, 'Default points'),
+    ...((state.scoring?.systems ?? []).map(s => el('option', { value: s.id, ...(w.pointSystemId === s.id ? { selected: true } : {}) },
+      s.name + (s.id === state.scoring.defaultId ? ' (default)' : '')))),
+  );
+
   const filtersRow = el('div', { class: 'row', style: 'gap:0.75rem; flex-wrap:wrap; align-items:center; margin-bottom:0.5rem' },
     makeCategorySelect(),
     makeClassChecks(),
     el('label', {}, 'Players: ', sizeInput),
+    el('label', {}, 'Points: ', psSelect),
     el('span', { class: 'muted' }, `(${w.seeds.length}/${w.size} added, bracket size ${nextPow2(w.size)})`),
     el('button', { class: 'ghost', style: 'margin-left:auto', on: { click: closeBracketWizard } }, 'Cancel'),
   );
@@ -2881,17 +2970,28 @@ function renderBracketWizard() {
     } },
   }, `Add top ${w.size}`);
 
-  // Seed list (ordered)
-  const seedList = el('ol', { class: 'seed-list' },
+  // Reorder a seed from `from` to `to` (both 0-based), clamped in range.
+  const moveSeed = (from, to) => {
+    to = Math.max(0, Math.min(w.seeds.length - 1, to));
+    if (to === from || !Number.isInteger(to)) { renderBracketWizard(); return; }
+    const [item] = w.seeds.splice(from, 1);
+    w.seeds.splice(to, 0, item);
+    renderBracketWizard();
+  };
+
+  // Seed list — type a seed's position in the number box to reorder it.
+  const seedList = el('ul', { class: 'seed-list' },
     ...(w.seeds.length === 0
       ? [el('li', { class: 'muted' }, '(no seeds yet)')]
       : w.seeds.map((id, idx) => el('li', { class: 'seed-row' },
+          el('input', { type: 'number', class: 'seed-pos', min: 1, max: w.seeds.length, value: idx + 1, title: 'Seed position',
+            on: { change: (e) => {
+              const v = Number(e.target.value);
+              if (!Number.isFinite(v)) { e.target.value = idx + 1; return; }
+              moveSeed(idx, Math.round(v) - 1);
+            } } }),
           el('span', {}, nameOf(id)),
           el('span', { class: 'seed-actions' },
-            el('button', { class: 'ghost', title: 'Move up', disabled: idx === 0,
-              on: { click: () => { if (idx > 0) { [w.seeds[idx - 1], w.seeds[idx]] = [w.seeds[idx], w.seeds[idx - 1]]; renderBracketWizard(); } } } }, '↑'),
-            el('button', { class: 'ghost', title: 'Move down', disabled: idx === w.seeds.length - 1,
-              on: { click: () => { if (idx < w.seeds.length - 1) { [w.seeds[idx], w.seeds[idx + 1]] = [w.seeds[idx + 1], w.seeds[idx]]; renderBracketWizard(); } } } }, '↓'),
             el('button', { class: 'ghost', title: 'Remove',
               on: { click: () => { w.seeds.splice(idx, 1); renderBracketWizard(); } } }, '✕'),
           ),
@@ -2909,6 +3009,7 @@ function renderBracketWizard() {
         category: w.category,
         classes: w.classes,
         size: w.size,
+        pointSystemId: w.pointSystemId || null,
         seeds: w.seeds,
       });
       closeBracketWizard();
@@ -3109,6 +3210,77 @@ $('#rename').addEventListener('submit', async (e) => {
   const name = new FormData(e.target).get('name');
   await put('/api/state/name', { name });
   await refresh();
+});
+
+// -- Point systems editor (Settings) -----------------------------------------
+// A local working copy so the operator's edits survive background re-renders;
+// reset to null after a save so the next render re-syncs from fresh state.
+let scoringDraft = null;
+const newPointSystemId = () => 'ps-' + Math.random().toString(36).slice(2, 10);
+
+function ensureScoringDraft() {
+  if (!scoringDraft) {
+    scoringDraft = state?.scoring
+      ? structuredClone(state.scoring)
+      : { systems: [{ id: newPointSystemId(), name: 'Default (21)', pointsPerSet: 21, maxPointsPerSet: 30, deciderPoints: 21, deciderMaxPoints: 30 }], defaultId: '' };
+  }
+  if (!scoringDraft.systems.some(s => s.id === scoringDraft.defaultId)) {
+    scoringDraft.defaultId = scoringDraft.systems[0]?.id ?? '';
+  }
+  return scoringDraft;
+}
+
+function pointSystemRow(sys, i, d) {
+  const num = (key, withList) => el('input', {
+    type: 'number', min: 1, value: sys[key], style: 'width:4rem',
+    ...(withList ? { list: 'points-to-win-options' } : {}),
+    on: { input: (e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v > 0) sys[key] = v; } },
+  });
+  return el('div', { class: 'point-system-row' },
+    el('label', { class: 'ps-default', title: 'Tournament default' },
+      el('input', { type: 'radio', name: 'ps-default-pick', ...(d.defaultId === sys.id ? { checked: true } : {}),
+        on: { change: () => { d.defaultId = sys.id; } } }),
+      ' default'),
+    el('input', { value: sys.name, placeholder: 'Name', style: 'width:9rem',
+      on: { input: (e) => { sys.name = e.target.value; } } }),
+    el('label', {}, 'points ', num('pointsPerSet', true)),
+    el('label', {}, 'max ', num('maxPointsPerSet', false)),
+    el('label', {}, 'decider ', num('deciderPoints', true)),
+    el('label', {}, 'dec.max ', num('deciderMaxPoints', false)),
+    el('button', { class: 'ghost small', title: 'Remove', ...(d.systems.length <= 1 ? { disabled: true } : {}),
+      on: { click: () => {
+        d.systems.splice(i, 1);
+        if (!d.systems.some(s => s.id === d.defaultId)) d.defaultId = d.systems[0]?.id ?? '';
+        renderPointSystems();
+      } } }, '✕'),
+  );
+}
+
+function renderPointSystems() {
+  const root = $('#point-systems');
+  if (!root) return;
+  const d = ensureScoringDraft();
+  root.replaceChildren(...d.systems.map((sys, i) => pointSystemRow(sys, i, d)));
+}
+
+$('#add-point-system')?.addEventListener('click', () => {
+  const d = ensureScoringDraft();
+  d.systems.push({ id: newPointSystemId(), name: `System ${d.systems.length + 1}`, pointsPerSet: 21, maxPointsPerSet: 30, deciderPoints: 21, deciderMaxPoints: 30 });
+  renderPointSystems();
+});
+
+$('#save-point-systems')?.addEventListener('click', async () => {
+  const d = ensureScoringDraft();
+  if (d.systems.some(s => !s.name.trim())) return alert('Every point system needs a name.');
+  if (!d.systems.some(s => s.id === d.defaultId)) d.defaultId = d.systems[0].id;
+  try {
+    await put('/api/state/scoring', d);
+    scoringDraft = null;          // re-sync from the saved state
+    await refresh();
+    alert('Point systems saved.');
+  } catch (err) {
+    alert('Failed to save point systems: ' + err.message);
+  }
 });
 
 $('#mark-all-present').addEventListener('click', async () => {

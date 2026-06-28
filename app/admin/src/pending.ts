@@ -172,6 +172,11 @@ function describeEntry(entry: PendingEntry): { tab: Tab; summary: string } {
   switch (entry.action) {
     case 'rename_tournament':
       return { tab: 'settings', summary: `Renamed tournament to "${payload.name ?? ''}"` };
+    case 'update_scoring': {
+      const systems = Array.isArray(payload.systems) ? payload.systems : [];
+      const def = systems.find((s) => s.id === payload.defaultId);
+      return { tab: 'settings', summary: `Updated point systems (${systems.length}; default "${def?.name ?? '?'}")` };
+    }
 
     case 'add_participant': {
       const cat = (payload.category as string) || '?';
