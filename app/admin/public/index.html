@@ -30,37 +30,51 @@
   <main>
     <section data-tab="participants" class="active">
       <h2>Participants</h2>
-      <form id="add-participant">
-        <input name="name" placeholder="Name" required>
-        <input name="club" placeholder="Club">
-        <select name="category">
-          <option value="">Category</option>
-          <option value="MS">MS</option>
-          <option value="WS">WS</option>
-          <option value="MD">MD</option>
-          <option value="WD">WD</option>
-          <option value="MX">MX</option>
-        </select>
-        <select name="class">
-          <option value="">Class</option>
-          <option value="S">S</option>
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="C">C</option>
-          <option value="D">D</option>
-        </select>
-        <button type="submit">Add</button>
-        <p id="add-participant-error" class="form-error" hidden></p>
-      </form>
-      <details>
-        <summary>Import CSV (columns: name, club, category, class, seed)</summary>
-        <form id="import-csv">
-          <textarea name="csv" rows="6" placeholder="name,club,category,class,seed&#10;Jane Doe,TV Karlsruhe,WS,B,1"></textarea>
-          <button type="submit">Import</button>
+      <nav class="subtabs" id="participant-subtabs">
+        <a data-subtab="registration" class="active">Registration</a>
+        <a data-subtab="player">Player</a>
+      </nav>
+
+      <div class="subpanel" data-subtab="registration">
+        <form id="add-participant">
+          <input name="name" placeholder="Name" required>
+          <input name="club" placeholder="Club">
+          <select name="category">
+            <option value="">Category</option>
+            <option value="MS">MS</option>
+            <option value="WS">WS</option>
+            <option value="MD">MD</option>
+            <option value="WD">WD</option>
+            <option value="MX">MX</option>
+          </select>
+          <select name="class">
+            <option value="">Class</option>
+            <option value="S">S</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+          </select>
+          <button type="submit">Add</button>
+          <p id="add-participant-error" class="form-error" hidden></p>
         </form>
-      </details>
-      <div id="participants-toolbar"></div>
-      <div id="participants-list"></div>
+        <details>
+          <summary>Import CSV (columns: name, club, category, class)</summary>
+          <form id="import-csv">
+            <textarea name="csv" rows="6" placeholder="name,club,category,class&#10;Jane Doe,TV Karlsruhe,WS,B"></textarea>
+            <button type="submit">Import</button>
+          </form>
+        </details>
+        <p class="hint">One line per person, sorted by name, listing the disciplines (Cat-Class) they entered. Tick <strong>Present</strong> when they check in — they then appear under <strong>Player</strong> (grouped by discipline). Each person checks in and pays their <strong>own</strong> fee — in doubles, the two partners are tracked separately.</p>
+        <div id="participants-toolbar"></div>
+        <div id="participants-list"></div>
+      </div>
+
+      <div class="subpanel" data-subtab="player" hidden>
+        <p class="hint">Players who have checked in (marked present in Registration). Entry-fee status is shared with Registration.</p>
+        <div id="players-toolbar"></div>
+        <div id="players-list"></div>
+      </div>
     </section>
 
     <section data-tab="groups">

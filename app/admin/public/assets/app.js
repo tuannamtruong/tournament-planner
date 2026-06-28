@@ -624,16 +624,64 @@ function isMissingPartner(p) {
   return DOUBLES.has(p.category) && !p.name.includes(' & ');
 }
 
+// Total table columns for a given view, so class-divider rows can span correctly.
+// Base: Name, Club, Cat, Class, Paid, Amount, note, actions (8) plus an
+// optional Present column in the Registration view.
+function participantColCount(opts = {}) {
+  return 8 + (opts.showPresent ? 1 : 0);
+}
+
+function fmtAmount(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+// Check-in + fee is tracked PER PERSON (a doubles entry is shared by two people
+// who each pay their own fee), keyed by normalised name. Must match the backend
+// key — the same string both ends use verbatim.
+const personKey = (name) => name.trim().toLowerCase();
+function registrantOf(name) {
+  return state.registrants?.[personKey(name)] ?? { present: false, paid: false, paidAmount: 0 };
+}
+async function patchRegistrant(name, body) {
+  await patch(`/api/registrants/${encodeURIComponent(personKey(name))}`, body);
+  await refresh();
+}
+const firstName = (name) => name.split(/\s+/)[0] || name;
+
+// A person's Paid checkbox / Amount input. `showLabel` prefixes the first name
+// so a doubles entry (two people stacked in one cell) stays legible.
+function paidControl(name, showLabel) {
+  const reg = registrantOf(name);
+  return el('label', { class: 'pay-person', title: `${name} — entry fee paid` },
+    el('input', { type: 'checkbox', ...(reg.paid ? { checked: true } : {}),
+      on: { change: (e) => patchRegistrant(name, { paid: e.target.checked }) } }),
+    showLabel ? el('span', { class: 'pay-name' }, firstName(name)) : null,
+  );
+}
+function amountControl(name, showLabel) {
+  const reg = registrantOf(name);
+  return el('label', { class: 'pay-person', title: `${name} — amount paid` },
+    showLabel ? el('span', { class: 'pay-name' }, firstName(name)) : null,
+    el('input', { type: 'number', min: 0, step: '0.01', class: 'amount-input', placeholder: '0',
+      value: reg.paidAmount ? fmtAmount(reg.paidAmount) : '',
+      on: { change: (e) => patchRegistrant(name, { paidAmount: Number(e.target.value) || 0 }) } }),
+  );
+}
+
 function participantRow(p, opts = {}) {
   const rowClasses = [opts.error ? 'p-error' : '', p.withdrawn ? 'withdrawn-row' : ''].filter(Boolean).join(' ');
-  return el('tr', { class: rowClasses },
+  const people = entryPeople(p);
+  const multi = people.length > 1;
+  const cells = [
     el('td', {}, p.name,
       p.withdrawn ? el('span', { class: 'badge warn', style: 'margin-left:0.4rem' }, 'withdrawn') : null,
     ),
     el('td', {}, p.club),
     el('td', { class: 'mono' }, p.category),
     el('td', { class: 'mono' }, p.class),
-    el('td', { class: 'num' }, String(p.seed || '')),
+    // Paid / Amount are per person — a doubles entry shows one control per partner.
+    el('td', { class: 'p-check p-payppl' }, ...people.map(nm => paidControl(nm, multi))),
+    el('td', { class: 'p-amount p-payppl' }, ...people.map(nm => amountControl(nm, multi))),
     el('td', { class: 'p-note' },
       opts.error ? el('span', { class: 'badge badge-error', title: 'Doubles entry without a partner — pair them up before drawing groups.' }, 'no partner') : null,
     ),
@@ -652,22 +700,26 @@ function participantRow(p, opts = {}) {
         if (!confirm(`Remove ${p.name}?`)) return;
         await del(`/api/participants/${p.id}`); await refresh();
       } } }, 'Remove')),
-  );
+  ];
+  return el('tr', { class: rowClasses }, ...cells);
 }
 
-function participantsTable(rows) {
+function participantsTable(rows, opts = {}) {
+  const head = [
+    el('th', {}, 'Name'),
+    el('th', {}, 'Club'),
+    el('th', {}, 'Cat.'),
+    el('th', {}, 'Class'),
+  ];
+  if (opts.showPresent) head.push(el('th', { class: 'p-check' }, 'Present'));
+  head.push(
+    el('th', { class: 'p-check' }, 'Paid'),
+    el('th', { class: 'p-amount' }, 'Amount'),
+    el('th', {}, ''),
+    el('th', {}, ''),
+  );
   return el('table', { class: 'participants-table' },
-    el('thead', {},
-      el('tr', {},
-        el('th', {}, 'Name'),
-        el('th', {}, 'Club'),
-        el('th', {}, 'Cat.'),
-        el('th', {}, 'Class'),
-        el('th', { class: 'num' }, 'Seed'),
-        el('th', {}, ''),
-        el('th', {}, ''),
-      ),
-    ),
+    el('thead', {}, el('tr', {}, ...head)),
     el('tbody', {}, ...rows),
   );
 }
@@ -692,9 +744,9 @@ function bulkDeleteBtn(label, ids, confirmLabel) {
   }, label);
 }
 
-function classDivider(cls, list) {
+function classDivider(cls, list, opts = {}) {
   return el('tr', { class: 'class-divider' },
-    el('td', { colspan: '6' },
+    el('td', { colspan: String(participantColCount(opts) - 1) },
       el('span', { class: 'mono' }, `Class ${cls || '·'}`),
       el('span', { class: 'muted' }, ` · ${list.length}`),
     ),
@@ -716,18 +768,132 @@ function makeSection(key, summary, body) {
   );
 }
 
+// Registration is a flat per-PERSON list sorted by name (no category/class
+// grouping — that lives in the Player tab). Player is the present-only grouped
+// view rendered by renderParticipantList().
 function renderParticipants() {
+  renderRegistration();
+  // A doubles entry needs both partners checked in before it's "in play".
+  const presentEntries = state.participants.filter(p =>
+    entryPeople(p).every(nm => registrantOf(nm).present));
+  renderParticipantList($('#players-list'), $('#players-toolbar'), presentEntries, {
+    showPresent: false,
+    showErrors: false,
+    keyPrefix: 'plr',
+    noun: 'player',
+    emptyMsg: 'No players checked in yet. Mark people “present” in Registration.',
+  });
+}
+
+// -- Registration: one line per human ----------------------------------------
+// Underlying data stays one participant row per (name, category, class); doubles
+// are stored as a single "A & B" row. For the per-person view we split doubles
+// on " & " so each human appears once, listing every discipline they entered.
+// A doubles entry therefore contributes to BOTH partners' lines (shared row).
+function entryPeople(p) {
+  if (DOUBLES.has(p.category) && p.name.includes('&')) {
+    return p.name.split('&').map(s => s.trim()).filter(Boolean);
+  }
+  const n = p.name.trim();
+  return n ? [n] : [];
+}
+
+// Aggregate rows into { name, club, entries[] } keyed by individual name
+// (case-insensitive). Club prefers a singles entry's club over a combined
+// doubles club. Returns name-sorted.
+function buildPeople(entries) {
+  const people = new Map();
+  for (const p of entries) {
+    const singles = !DOUBLES.has(p.category);
+    for (const nm of entryPeople(p)) {
+      const key = nm.toLowerCase();
+      let person = people.get(key);
+      if (!person) { person = { name: nm, club: '', entries: [] }; people.set(key, person); }
+      person.entries.push(p);
+      if (p.club && (singles || !person.club)) person.club = p.club;
+    }
+  }
+  return [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function disciplineTags(person) {
+  return person.entries
+    .map(e => ({
+      text: `${e.category || '?'}-${e.class || '?'}`,
+      cat: e.category, cls: e.class,
+      missingPartner: isMissingPartner(e),
+    }))
+    .sort((a, b) =>
+      (CATEGORY_ORDER.indexOf(a.cat) - CATEGORY_ORDER.indexOf(b.cat)) ||
+      (CLASS_ORDER.indexOf(a.cls) - CLASS_ORDER.indexOf(b.cls)));
+}
+
+function personRow(person) {
+  const reg = registrantOf(person.name);
+  const withdrawn = person.entries.every(e => e.withdrawn);
+  const nEntries = person.entries.length;
+  const plural = nEntries === 1 ? 'entry' : 'entries';
+
+  return el('tr', { class: withdrawn ? 'withdrawn-row' : '' },
+    el('td', {}, person.name,
+      withdrawn ? el('span', { class: 'badge warn', style: 'margin-left:0.4rem' }, 'withdrawn') : null,
+      reg.present ? el('span', { class: 'badge ok', style: 'margin-left:0.4rem' }, 'present') : null,
+    ),
+    el('td', {}, person.club),
+    el('td', { class: 'p-disc' }, ...disciplineTags(person).map(t =>
+      el('span', {
+        class: 'disc-tag' + (t.missingPartner ? ' warn' : ''),
+        ...(t.missingPartner ? { title: 'Doubles entry without a partner — pair them up before drawing groups.' } : {}),
+      }, t.text))),
+    el('td', { class: 'p-check' },
+      el('input', { type: 'checkbox', title: 'Checked in at the venue',
+        ...(reg.present ? { checked: true } : {}),
+        on: { change: (e) => patchRegistrant(person.name, { present: e.target.checked }) } })),
+    el('td', { class: 'p-check' },
+      el('input', { type: 'checkbox', title: 'Entry fee paid',
+        ...(reg.paid ? { checked: true } : {}),
+        on: { change: (e) => patchRegistrant(person.name, { paid: e.target.checked }) } })),
+    el('td', { class: 'p-amount' },
+      el('input', { type: 'number', min: 0, step: '0.01', class: 'amount-input', placeholder: '0',
+        value: reg.paidAmount ? fmtAmount(reg.paidAmount) : '',
+        on: { change: (e) => patchRegistrant(person.name, { paidAmount: Number(e.target.value) || 0 }) } })),
+    el('td', {},
+      withdrawn
+        ? el('button', { class: 'ghost', on: { click: async () => {
+            if (!confirm(`Reinstate ${person.name}? Re-enables their ${nEntries} ${plural} for future pairings.`)) return;
+            for (const e of person.entries) await post(`/api/participants/${e.id}/reinstate`);
+            await refresh();
+          } } }, 'Reinstate')
+        : el('button', { class: 'ghost', on: { click: async () => {
+            if (!confirm(`Withdraw ${person.name}? Their ${nEntries} ${plural} get marked as walkovers for the opponents.`)) return;
+            for (const e of person.entries) await post(`/api/participants/${e.id}/withdraw`);
+            await refresh();
+          } } }, 'Withdraw'),
+      ' ',
+      el('button', { class: 'ghost', on: { click: async () => {
+        const ids = person.entries.map(e => e.id);
+        const shared = person.entries.some(e => DOUBLES.has(e.category) && e.name.includes('&'));
+        const note = shared ? '\n\nNote: a doubles entry is shared — removing it also drops it from the partner.' : '';
+        if (!confirm(`Remove ${person.name} and all ${ids.length} of their ${plural}?${note}`)) return;
+        await post('/api/participants/bulk-delete', { ids });
+        await refresh();
+      } } }, 'Remove')),
+  );
+}
+
+function renderRegistration() {
   const root = $('#participants-list');
   const toolbar = $('#participants-toolbar');
   const all = state.participants;
-  const errors = all.filter(isMissingPartner);
-  const sorted = (arr) => [...arr].sort((a, b) => a.name.localeCompare(b.name));
+  const people = buildPeople(all);
 
-  // Top-level toolbar: total count + "delete all".
   if (toolbar) {
+    const paidPeople = people.filter(person => registrantOf(person.name).paid).length;
+    const collected = people.reduce((sum, person) => sum + (registrantOf(person.name).paidAmount || 0), 0);
     toolbar.replaceChildren(
       el('div', { class: 'participants-summary' },
-        el('span', { class: 'muted' }, `${all.length} participant${all.length === 1 ? '' : 's'}`),
+        el('span', { class: 'muted' },
+          `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${all.length} entr${all.length === 1 ? 'y' : 'ies'} · ${paidPeople} paid · ${fmtAmount(collected)} collected`),
         all.length > 0
           ? bulkDeleteBtn(`Delete all ${all.length}`, all.map(p => p.id), 'every participant in the tournament')
           : null,
@@ -735,9 +901,49 @@ function renderParticipants() {
     );
   }
 
+  if (people.length === 0) {
+    root.replaceChildren(el('p', { class: 'muted' }, 'No participants yet.'));
+    return;
+  }
+  root.replaceChildren(
+    el('table', { class: 'participants-table registration-table' },
+      el('thead', {}, el('tr', {},
+        el('th', {}, 'Name'),
+        el('th', {}, 'Club'),
+        el('th', {}, 'Disciplines'),
+        el('th', { class: 'p-check' }, 'Present'),
+        el('th', { class: 'p-check' }, 'Paid'),
+        el('th', { class: 'p-amount' }, 'Amount'),
+        el('th', {}, ''),
+      )),
+      el('tbody', {}, ...people.map(personRow)),
+    ),
+  );
+}
+
+function renderParticipantList(root, toolbar, list, opts) {
+  const sorted = (arr) => [...arr].sort((a, b) => a.name.localeCompare(b.name));
+  const errors = opts.showErrors ? list.filter(isMissingPartner) : [];
+
+  // Toolbar: per-person counts (a doubles entry covers two people) + fee summary.
+  if (toolbar) {
+    const peopleInView = buildPeople(list);
+    const paidCount = peopleInView.filter(person => registrantOf(person.name).paid).length;
+    const collected = peopleInView.reduce((sum, person) => sum + (registrantOf(person.name).paidAmount || 0), 0);
+    toolbar.replaceChildren(
+      el('div', { class: 'participants-summary' },
+        el('span', { class: 'muted' },
+          `${peopleInView.length} ${opts.noun}${peopleInView.length === 1 ? '' : 's'} · ${list.length} entr${list.length === 1 ? 'y' : 'ies'} · ${paidCount} paid · ${fmtAmount(collected)} collected`),
+        (opts.showPresent && list.length > 0)
+          ? bulkDeleteBtn(`Delete all ${list.length}`, list.map(p => p.id), 'every participant in the tournament')
+          : null,
+      ),
+    );
+  }
+
   const sections = [];
 
-  // Errors at the top.
+  // Errors at the top (Registration only).
   if (errors.length > 0) {
     const grouped = new Map();
     for (const p of errors) {
@@ -747,13 +953,13 @@ function renderParticipants() {
     }
     const rows = [];
     for (const cat of CATEGORY_ORDER) {
-      const list = grouped.get(cat);
-      if (!list) continue;
-      rows.push(classDivider(`${cat} · missing partner`, list));
-      for (const p of sorted(list)) rows.push(participantRow(p, { error: true }));
+      const arr = grouped.get(cat);
+      if (!arr) continue;
+      rows.push(classDivider(`${cat} · missing partner`, arr, opts));
+      for (const p of sorted(arr)) rows.push(participantRow(p, { ...opts, error: true }));
     }
     sections.push(makeSection(
-      '__errors__',
+      `${opts.keyPrefix}:__errors__`,
       el('span', { class: 'section-summary' },
         el('span', {},
           el('span', { class: 'badge badge-error' }, 'Errors'),
@@ -762,14 +968,14 @@ function renderParticipants() {
         ),
         bulkDeleteBtn(`Delete all ${errors.length}`, errors.map(p => p.id), 'all errors (missing partner)'),
       ),
-      participantsTable(rows),
+      participantsTable(rows, opts),
     ));
   }
 
   // Regular categories.
   const byCat = new Map();
-  for (const p of all) {
-    if (isMissingPartner(p)) continue;
+  for (const p of list) {
+    if (opts.showErrors && isMissingPartner(p)) continue;
     const cat = p.category || '·';
     if (!byCat.has(cat)) byCat.set(cat, []);
     byCat.get(cat).push(p);
@@ -777,25 +983,25 @@ function renderParticipants() {
 
   const seen = new Set();
   for (const cat of CATEGORY_ORDER) {
-    const list = byCat.get(cat);
-    if (!list) continue;
+    const arr = byCat.get(cat);
+    if (!arr) continue;
     seen.add(cat);
-    sections.push(renderCategorySection(cat, list, sorted));
+    sections.push(renderCategorySection(cat, arr, sorted, opts));
   }
   // Any non-standard categories (e.g. legacy empty) at the end.
-  for (const [cat, list] of byCat) {
+  for (const [cat, arr] of byCat) {
     if (seen.has(cat)) continue;
-    sections.push(renderCategorySection(cat, list, sorted));
+    sections.push(renderCategorySection(cat, arr, sorted, opts));
   }
 
   if (sections.length === 0) {
-    root.replaceChildren(el('p', { class: 'muted' }, 'No participants yet.'));
+    root.replaceChildren(el('p', { class: 'muted' }, opts.emptyMsg));
     return;
   }
   root.replaceChildren(...sections);
 }
 
-function renderCategorySection(cat, list, sorted) {
+function renderCategorySection(cat, list, sorted, opts) {
   const byClass = new Map();
   for (const p of list) {
     const c = p.class || '·';
@@ -808,17 +1014,17 @@ function renderCategorySection(cat, list, sorted) {
     const arr = byClass.get(cls);
     if (!arr) continue;
     seenCls.add(cls);
-    rows.push(classDivider(cls, arr));
-    for (const p of sorted(arr)) rows.push(participantRow(p));
+    rows.push(classDivider(cls, arr, opts));
+    for (const p of sorted(arr)) rows.push(participantRow(p, opts));
   }
   for (const [cls, arr] of byClass) {
     if (seenCls.has(cls)) continue;
-    rows.push(classDivider(cls, arr));
-    for (const p of sorted(arr)) rows.push(participantRow(p));
+    rows.push(classDivider(cls, arr, opts));
+    for (const p of sorted(arr)) rows.push(participantRow(p, opts));
   }
   const label = CATEGORY_LABEL[cat] ?? cat;
   return makeSection(
-    `cat:${cat}`,
+    `${opts.keyPrefix}:cat:${cat}`,
     el('span', { class: 'section-summary' },
       el('span', {},
         el('span', { class: 'mono cat-tag' }, cat),
@@ -828,7 +1034,7 @@ function renderCategorySection(cat, list, sorted) {
       ),
       bulkDeleteBtn(`Delete all ${list.length}`, list.map(p => p.id), `${label} (${cat}, all classes)`),
     ),
-    participantsTable(rows),
+    participantsTable(rows, opts),
   );
 }
 
@@ -886,6 +1092,18 @@ $('#import-csv').addEventListener('submit', async (e) => {
   await post('/api/participants/import-csv', { csv });
   e.target.reset();
   await refresh();
+});
+
+// Participants sub-navigation: Registration vs Player. Pure client-side toggle
+// of which sub-panel is visible; both are kept up to date by renderParticipants.
+$$('#participant-subtabs a').forEach(a => {
+  a.addEventListener('click', () => {
+    const name = a.dataset.subtab;
+    $$('#participant-subtabs a').forEach(x => x.classList.toggle('active', x === a));
+    $$('section[data-tab="participants"] .subpanel').forEach(p => {
+      p.hidden = p.dataset.subtab !== name;
+    });
+  });
 });
 
 // -- Groups -------------------------------------------------------------------

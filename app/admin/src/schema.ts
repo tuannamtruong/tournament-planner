@@ -17,6 +17,19 @@ export const Participant = z.object({
 });
 export type Participant = z.infer<typeof Participant>;
 
+// Check-in + entry-fee tracking is PER PERSON, not per participant row: a
+// doubles entry is one row shared by two people, but each of them checks in and
+// pays their own fee. Registrants are therefore stored in a map keyed by the
+// person's normalised name (lower-cased, trimmed — the same key the admin UI
+// derives when it splits "A & B" doubles entries into individuals).
+// `present` = showed up at the venue; `paid`/`paidAmount` = their own fee.
+export const Registrant = z.object({
+  present: z.boolean().default(false),
+  paid: z.boolean().default(false),
+  paidAmount: z.number().nonnegative().default(0),
+});
+export type Registrant = z.infer<typeof Registrant>;
+
 export const MatchStatus = z.enum(['pending', 'live', 'done']);
 export type MatchStatus = z.infer<typeof MatchStatus>;
 
@@ -140,6 +153,8 @@ export const Tournament = z.preprocess((raw) => {
     updatedAt: z.string(),
   }),
   participants: z.array(Participant).default([]),
+  // Per-person check-in + fee state, keyed by normalised person name. See Registrant.
+  registrants: z.record(z.string(), Registrant).default({}),
   groups: z.array(Group).default([]),
   knockouts: z.array(Bracket).default([]),
   auditLog: z.array(AuditEntry).default([]),

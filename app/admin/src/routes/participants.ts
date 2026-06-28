@@ -16,6 +16,14 @@ const PatchParticipant = NewParticipant.partial().extend({
   withdrawn: z.boolean().optional(),
 });
 
+// Per-person check-in + fee patch. `key` is the normalised person name the UI
+// derives; the body is a partial Registrant.
+const PatchRegistrant = z.object({
+  present: z.boolean().optional(),
+  paid: z.boolean().optional(),
+  paidAmount: z.number().nonnegative().optional(),
+});
+
 export async function participantRoutes(app: FastifyInstance) {
   app.post('/api/participants', async (req) => {
     const p = NewParticipant.parse(req.body);
@@ -23,6 +31,19 @@ export async function participantRoutes(app: FastifyInstance) {
       { action: 'add_participant', payload: p },
       (s) => {
         s.participants.push({ id: nanoid(8), withdrawn: false, ...p });
+        return s;
+      },
+    );
+  });
+
+  app.patch('/api/registrants/:key', async (req) => {
+    const { key } = req.params as { key: string };
+    const patch = PatchRegistrant.parse(req.body);
+    return mutate(
+      { action: 'patch_registrant', target: key, payload: patch },
+      (s) => {
+        const cur = s.registrants[key] ?? { present: false, paid: false, paidAmount: 0 };
+        s.registrants[key] = { ...cur, ...patch };
         return s;
       },
     );

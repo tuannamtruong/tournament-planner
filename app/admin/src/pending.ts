@@ -183,6 +183,10 @@ function describeEntry(entry: PendingEntry): { tab: Tab; summary: string } {
       const fields = Object.keys(payload).join(', ');
       return { tab: 'participants', summary: `Edited ${participantTag(p, target)}${fields ? ` — ${fields}` : ''}` };
     }
+    case 'patch_registrant': {
+      const fields = Object.keys(payload).join(', ');
+      return { tab: 'participants', summary: `Updated check-in/fee for "${target}"${fields ? ` — ${fields}` : ''}` };
+    }
     case 'remove_participant':
       return { tab: 'participants', summary: `Removed ${participantTag(findParticipant(snap, target), target)}` };
     case 'withdraw_participant':
