@@ -15,7 +15,7 @@ BASE := http://localhost:$(PORT)
 
 .PHONY: help install dev test test-watch typecheck \
         cfn-deploy publish status force-publish backup cfn-delete \
-        generate-data import-data wipe-data clean
+        generate-data randomize-results import-data wipe-data clean
 
 STACK_NAME    ?= tp-stm-result-stack
 BUCKET_PARAM  ?= $(TP_BUCKET)
@@ -75,6 +75,9 @@ backup: ## Push a tournament.json snapshot to s3://$$TP_BUCKET/private/backups/
 ## Local data
 generate-data: ## Seed admin/data with a demo roster (singles + doubles, clubs, check-in/fees). SEED=n for a variant
 	npx tsx scripts/generate-data.ts
+
+randomize-results: ## Re-randomize results for existing groups & brackets (non-destructive). SEED=n for a variant
+	npx tsx scripts/randomize-results.ts
 
 import-data: ## Import a roster CSV into admin/data (appends). CSV=path overrides data/ettlingen.csv
 	npx tsx scripts/import-csv.ts $(CSV)

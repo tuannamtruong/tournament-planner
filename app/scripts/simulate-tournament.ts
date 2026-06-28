@@ -9,19 +9,8 @@ import { mutate } from '../admin/src/storage.ts';
 import { nanoid } from 'nanoid';
 import { roundRobin } from '../admin/src/pairing/round_robin.ts';
 import { computeStandings } from '../admin/src/standings.ts';
+import { rng, simulateMatch } from './lib/sim.ts';
 import type { Group, Match, Round, Bracket, BracketRound, BracketSlot, Participant } from '../admin/src/schema.ts';
-
-// Deterministic PRNG (mulberry32) so re-runs produce identical results.
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function shuffle<T>(arr: T[], rand: () => number): T[] {
   const out = [...arr];
@@ -46,32 +35,6 @@ function partitionGroups(members: string[], rand: () => number): string[][] {
     groups[i % numGroups].push(shuffled[i]);
   }
   return groups;
-}
-
-// Pick a winner with a slight bias toward the player listed first (mimics seeding).
-function simulateSetScore(p1Wins: boolean, rand: () => number): [number, number] {
-  // Loser scores 12–19, winner reaches 21 (or 22–24 in tight sets).
-  const loserPts = 12 + Math.floor(rand() * 8);
-  let winnerPts = 21;
-  if (loserPts >= 20) winnerPts = loserPts + 2;
-  return p1Wins ? [winnerPts, loserPts] : [loserPts, winnerPts];
-}
-
-function simulateMatch(rand: () => number): { score: [number, number][]; p1Won: boolean } {
-  // 50/50 winner; best of 3 sets.
-  const p1Won = rand() < 0.5;
-  const straight = rand() < 0.55;
-  const sets: [number, number][] = [];
-  if (straight) {
-    sets.push(simulateSetScore(p1Won, rand));
-    sets.push(simulateSetScore(p1Won, rand));
-  } else {
-    // Split first two, decider goes to the winner.
-    sets.push(simulateSetScore(!p1Won, rand));
-    sets.push(simulateSetScore(p1Won, rand));
-    sets.push(simulateSetScore(p1Won, rand));
-  }
-  return { score: sets, p1Won };
 }
 
 function materializeRound(roundNo: number, pairs: { p1: string; p2: string | null }[]): Round {
