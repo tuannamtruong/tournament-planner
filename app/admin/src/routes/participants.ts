@@ -60,6 +60,26 @@ export async function participantRoutes(app: FastifyInstance) {
     );
   });
 
+  // Bulk check-in: mark every person across all participant entries present.
+  // Settings exposes a one-click button for this — handy when the whole field
+  // has arrived and per-person check-in in Registration would be tedious.
+  // Returns the count of people now present so the UI can confirm.
+  app.post('/api/registrants/mark-all-present', async () => {
+    const names = new Set<string>();
+    const state = await mutate(
+      { action: 'mark_all_present' },
+      (s) => {
+        for (const p of s.participants) for (const nm of p.players) names.add(key(nm));
+        for (const k of names) {
+          const cur = s.registrants[k] ?? { club: '', present: false, paid: false, paidAmount: 0 };
+          s.registrants[k] = { ...cur, present: true };
+        }
+        return s;
+      },
+    );
+    return { ...state, markedPresent: names.size };
+  });
+
   app.patch('/api/registrants/:key', async (req) => {
     const { key } = req.params as { key: string };
     const patch = PatchRegistrant.parse(req.body);

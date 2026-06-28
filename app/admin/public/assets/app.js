@@ -3111,6 +3111,17 @@ $('#rename').addEventListener('submit', async (e) => {
   await refresh();
 });
 
+$('#mark-all-present').addEventListener('click', async () => {
+  if (!confirm('Mark every participant as present?')) return;
+  try {
+    const res = await post('/api/registrants/mark-all-present');
+    await refresh();
+    alert(`Marked ${res.markedPresent} ${res.markedPresent === 1 ? 'person' : 'people'} present.`);
+  } catch (err) {
+    alert('Failed to mark all present: ' + err.message);
+  }
+});
+
 // -- Pending changes ---------------------------------------------------------
 // Server provides `tab` and `summary` per entry, resolved against the
 // pre-mutation snapshot (so e.g. a deleted player's name is still rendered).
