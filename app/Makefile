@@ -15,7 +15,7 @@ BASE := http://localhost:$(PORT)
 
 .PHONY: help install dev test test-watch typecheck \
         cfn-deploy publish status force-publish backup cfn-delete \
-        wipe-data clean
+        generate-data import-data wipe-data clean
 
 STACK_NAME    ?= tp-stm-result-stack
 BUCKET_PARAM  ?= $(TP_BUCKET)
@@ -73,6 +73,12 @@ backup: ## Push a tournament.json snapshot to s3://$$TP_BUCKET/private/backups/
 	@curl -sS -X POST $(BASE)/api/publish/backup | python3 -m json.tool
 
 ## Local data
+generate-data: ## Seed admin/data with a demo roster (singles + doubles, clubs, check-in/fees). SEED=n for a variant
+	npx tsx scripts/generate-data.ts
+
+import-data: ## Import a roster CSV into admin/data (appends). CSV=path overrides data/ettlingen.csv
+	npx tsx scripts/import-csv.ts $(CSV)
+
 wipe-data: ## Delete admin/data/ (tournament.json + backups) — asks first
 	@read -rp "Delete admin/data/ ? [y/N] " r; \
 	 [[ "$$r" =~ ^[yY] ]] && rm -rf admin/data && echo "deleted" || echo "skipped"
