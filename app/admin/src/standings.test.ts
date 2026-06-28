@@ -3,7 +3,7 @@ import { computeStandings } from './standings.ts';
 import type { Group, Participant } from './schema.ts';
 
 const part = (id: string, name: string): Participant => ({
-  id, name, club: '', category: '', class: '', withdrawn: false,
+  id, players: [name], category: '', class: '', withdrawn: false,
 });
 
 const match = (

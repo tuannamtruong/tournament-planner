@@ -2,7 +2,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { load } from './storage.ts';
 import { computeStandings } from './standings.ts';
 import { clearPending, loadPending } from './pending.ts';
-import type { Tournament } from './schema.ts';
+import { displayName, type Tournament } from './schema.ts';
 
 const BUCKET = process.env.TP_BUCKET ?? '';
 const REGION = process.env.TP_REGION ?? 'eu-central-1';
@@ -107,7 +107,8 @@ export async function pushBackup(): Promise<void> {
 
 function nameOf(state: Tournament, id: string): string {
   if (id === '__bye__') return 'BYE';
-  return state.participants.find(p => p.id === id)?.name ?? id;
+  const p = state.participants.find(p => p.id === id);
+  return p ? displayName(p) : id;
 }
 
 export function deriveViews(state: Tournament) {

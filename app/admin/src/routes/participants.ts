@@ -5,24 +5,43 @@ import { z } from 'zod';
 import { mutate } from '../storage.ts';
 import { propagate as propagateBracketWinner } from './knockout.ts';
 
+// One player on an entry: their display name + own club. Singles send one,
+// doubles up to two (or one to register partnerless and pair later).
+const PlayerInput = z.object({ name: z.string().min(1), club: z.string().default('') });
+
 const NewParticipant = z.object({
-  name: z.string().min(1),
-  club: z.string().default(''),
   category: z.string().min(1),
   class: z.string().min(1),
+  players: z.array(PlayerInput).min(1).max(2),
 });
 
-const PatchParticipant = NewParticipant.partial().extend({
+const PatchParticipant = z.object({
+  category: z.string().min(1).optional(),
+  class: z.string().min(1).optional(),
   withdrawn: z.boolean().optional(),
+  players: z.array(PlayerInput).min(1).max(2).optional(),
 });
 
 // Per-person check-in + fee patch. `key` is the normalised person name the UI
 // derives; the body is a partial Registrant.
 const PatchRegistrant = z.object({
+  club: z.string().optional(),
   present: z.boolean().optional(),
   paid: z.boolean().optional(),
   paidAmount: z.number().nonnegative().optional(),
 });
+
+const Pair = z.object({ partnerId: z.string().min(1) });
+
+// Normalised person key — must match the admin UI's personKey(). Per-person
+// data (club, check-in, fee) lives in state.registrants under this key.
+const key = (name: string) => name.trim().toLowerCase();
+function setRegistrantClub(s: { registrants: Record<string, { club: string; present: boolean; paid: boolean; paidAmount: number }> }, name: string, club: string) {
+  if (!club) return;
+  const k = key(name);
+  const cur = s.registrants[k] ?? { club: '', present: false, paid: false, paidAmount: 0 };
+  s.registrants[k] = { ...cur, club };
+}
 
 export async function participantRoutes(app: FastifyInstance) {
   app.post('/api/participants', async (req) => {
@@ -30,7 +49,12 @@ export async function participantRoutes(app: FastifyInstance) {
     return mutate(
       { action: 'add_participant', payload: p },
       (s) => {
-        s.participants.push({ id: nanoid(8), withdrawn: false, ...p });
+        s.participants.push({
+          id: nanoid(8), withdrawn: false,
+          category: p.category, class: p.class,
+          players: p.players.map(pl => pl.name),
+        });
+        for (const pl of p.players) setRegistrantClub(s, pl.name, pl.club);
         return s;
       },
     );
@@ -42,7 +66,7 @@ export async function participantRoutes(app: FastifyInstance) {
     return mutate(
       { action: 'patch_registrant', target: key, payload: patch },
       (s) => {
-        const cur = s.registrants[key] ?? { present: false, paid: false, paidAmount: 0 };
+        const cur = s.registrants[key] ?? { club: '', present: false, paid: false, paidAmount: 0 };
         s.registrants[key] = { ...cur, ...patch };
         return s;
       },
@@ -57,7 +81,64 @@ export async function participantRoutes(app: FastifyInstance) {
       (s) => {
         const p = s.participants.find(p => p.id === id);
         if (!p) throw new Error(`participant ${id} not found`);
-        Object.assign(p, patch);
+        if (patch.category !== undefined) p.category = patch.category;
+        if (patch.class !== undefined) p.class = patch.class;
+        if (patch.withdrawn !== undefined) p.withdrawn = patch.withdrawn;
+        if (patch.players) {
+          // Positional rename: carry the old name's registrant (check-in/fee) to
+          // the new name if the new one has none yet. Then apply club edits.
+          patch.players.forEach((pl, i) => {
+            const oldName = p.players[i];
+            if (oldName && key(oldName) !== key(pl.name) && s.registrants[key(oldName)] && !s.registrants[key(pl.name)]) {
+              s.registrants[key(pl.name)] = { ...s.registrants[key(oldName)] };
+            }
+            setRegistrantClub(s, pl.name, pl.club);
+          });
+          p.players = patch.players.map(pl => pl.name);
+        }
+        return s;
+      },
+    );
+  });
+
+  // Pair two unpaired doubles entries of the same category + class into one team
+  // (`a` absorbs `b`'s player; `b`'s row is removed). Per-person data persists in
+  // registrants (keyed by name), so nothing is lost.
+  app.post('/api/participants/:id/pair', async (req) => {
+    const { id } = req.params as { id: string };
+    const { partnerId } = Pair.parse(req.body);
+    return mutate(
+      { action: 'pair_participants', target: id, payload: { partnerId } },
+      (s) => {
+        const a = s.participants.find(p => p.id === id);
+        const b = s.participants.find(p => p.id === partnerId);
+        if (!a || !b) throw new Error('participant not found');
+        if (a.id === b.id) throw new Error('cannot pair a participant with itself');
+        if (a.category !== b.category || a.class !== b.class) throw new Error('partners must share category and class');
+        if (a.players.length !== 1 || b.players.length !== 1) throw new Error('both participants must be unpaired');
+        a.players = [a.players[0], b.players[0]];
+        s.participants = s.participants.filter(p => p.id !== b.id);
+        s.groups.forEach(g => { g.members = g.members.filter(m => m !== b.id); });
+        return s;
+      },
+    );
+  });
+
+  // Split a paired team back into two solo entries (the second player becomes a
+  // fresh partnerless participant in the same category + class).
+  app.post('/api/participants/:id/unpair', async (req) => {
+    const { id } = req.params as { id: string };
+    return mutate(
+      { action: 'unpair_participant', target: id },
+      (s) => {
+        const p = s.participants.find(x => x.id === id);
+        if (!p) throw new Error(`participant ${id} not found`);
+        if (p.players.length < 2) throw new Error('participant is not a paired team');
+        const partnerName = p.players.pop()!;
+        s.participants.push({
+          id: nanoid(8), withdrawn: false,
+          category: p.category, class: p.class, players: [partnerName],
+        });
         return s;
       },
     );
@@ -173,14 +254,19 @@ export async function participantRoutes(app: FastifyInstance) {
         for (const row of rows) {
           const name = row.name ?? row.Name ?? '';
           if (!name) continue;
+          const club = row.club ?? row.Club ?? '';
+          const players = name.includes(' & ')
+            ? name.split('&').map(s => s.trim()).filter(Boolean)
+            : [name.trim()];
+          if (!players.length) continue;
           s.participants.push({
             id: nanoid(8),
-            name,
-            club: row.club ?? row.Club ?? '',
+            withdrawn: false,
             category: row.category ?? row.Category ?? '',
             class: row.class ?? row.Class ?? '',
-            withdrawn: false,
+            players,
           });
+          for (const pn of players) setRegistrantClub(s, pn, club);
         }
         return s;
       },

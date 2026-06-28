@@ -759,6 +759,42 @@ table.registration-table .p-disc { white-space: normal; line-height: 1.6; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .disc-tag.warn { background: #fef3c7; border: 1px solid #fbbf24; }
+.disc-tag[title] { cursor: help; }
+
+/* Absent doubles partner (Player tab): show their name in red. */
+.absent { color: var(--red); }
+
+/* Add-form partner boxes. */
+.player-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.player-box-label { font-size: 0.8rem; color: var(--muted); }
+.player-box[hidden] { display: none; }
+
+/* (i) partner-info button + expandable info box (Registration). */
+.info-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 0.2rem;
+  vertical-align: middle;
+}
+tr.info-row > td { background: #f8fafc; border-top: none; }
+.info-box { padding: 0.4rem 0.2rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.info-line { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.info-partner { margin-right: 0.5rem; }
+.info-pair { margin-left: auto; }
+.pair-select { font-size: 0.85rem; max-width: 14rem; }
+.pair-row { margin-top: 0.3rem; }
+tr.partner-row > td { border-top: none; }
+
 /* Per-person Paid/Amount cells (Player tab): one control per partner, stacked. */
 table.participants-table td.p-payppl { white-space: nowrap; }
 .pay-person {

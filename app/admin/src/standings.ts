@@ -1,4 +1,4 @@
-import type { Group, Match, Participant } from './schema.ts';
+import { displayName, type Group, type Match, type Participant } from './schema.ts';
 
 export type Standing = {
   participantId: string;
@@ -49,7 +49,7 @@ export function computeStandings(group: Group, participants: Participant[]): Sta
     const p = participants.find(p => p.id === id);
     if (!p) continue;
     tally.set(id, {
-      participantId: id, name: p.name,
+      participantId: id, name: displayName(p),
       withdrawn: p.withdrawn,
       played: 0, won: 0, lost: 0,
       setsWon: 0, setsLost: 0,

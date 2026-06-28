@@ -37,8 +37,6 @@
 
       <div class="subpanel" data-subtab="registration">
         <form id="add-participant">
-          <input name="name" placeholder="Name" required>
-          <input name="club" placeholder="Club">
           <select name="category">
             <option value="">Category</option>
             <option value="MS">MS</option>
@@ -55,6 +53,16 @@
             <option value="C">C</option>
             <option value="D">D</option>
           </select>
+          <div class="player-box">
+            <span class="player-box-label">Player 1</span>
+            <input name="name" placeholder="Name" required>
+            <input name="club" placeholder="Club">
+          </div>
+          <div class="player-box" id="partner-box" hidden>
+            <span class="player-box-label">Player 2 <span class="muted">(optional)</span></span>
+            <input name="name2" placeholder="Partner name">
+            <input name="club2" placeholder="Partner club">
+          </div>
           <button type="submit">Add</button>
           <p id="add-participant-error" class="form-error" hidden></p>
         </form>

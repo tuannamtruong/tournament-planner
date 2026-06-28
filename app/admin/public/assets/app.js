@@ -22,7 +22,8 @@ function el(tag, attrs = {}, ...children) {
 
 function nameOf(id) {
   if (id === '__bye__') return 'BYE';
-  return state?.participants.find(p => p.id === id)?.name ?? id;
+  const p = state?.participants.find(p => p.id === id);
+  return p ? p.players.join(' & ') : id;
 }
 
 // -- Match grid helpers ------------------------------------------------------
@@ -621,7 +622,7 @@ function defaultOpen(key) {
 }
 
 function isMissingPartner(p) {
-  return DOUBLES.has(p.category) && !p.name.includes(' & ');
+  return DOUBLES.has(p.category) && p.players.length < 2;
 }
 
 // Total table columns for a given view, so class-divider rows can span correctly.
@@ -640,13 +641,23 @@ function fmtAmount(n) {
 // key — the same string both ends use verbatim.
 const personKey = (name) => name.trim().toLowerCase();
 function registrantOf(name) {
-  return state.registrants?.[personKey(name)] ?? { present: false, paid: false, paidAmount: 0 };
+  return state.registrants?.[personKey(name)] ?? { club: '', present: false, paid: false, paidAmount: 0 };
 }
 async function patchRegistrant(name, body) {
   await patch(`/api/registrants/${encodeURIComponent(personKey(name))}`, body);
   await refresh();
 }
-const firstName = (name) => name.split(/\s+/)[0] || name;
+// Name parts. For now the last whitespace-separated token is the last name.
+const firstName = (name) => name.trim().split(/\s+/)[0] || name;
+const lastName = (name) => { const t = name.trim().split(/\s+/); return t.length > 1 ? t[t.length - 1] : ''; };
+// A person's own club lives in their registrant.
+function clubOf(name) {
+  return registrantOf(name).club || '';
+}
+// Combined club label for an entry (singles = one club; doubles = both joined).
+function entryClub(p) {
+  return p.players.map(clubOf).filter(Boolean).join(' / ');
+}
 
 // A person's Paid checkbox / Amount input. `showLabel` prefixes the first name
 // so a doubles entry (two people stacked in one cell) stays legible.
@@ -668,40 +679,75 @@ function amountControl(name, showLabel) {
   );
 }
 
+// Player-tab entry row. Returns an ARRAY of <tr>: singles = one row; a paired
+// doubles team = two rows (one per partner, each with own Name/Club/Paid/Amount)
+// with Cat / Class / actions shared via rowspan. Callers spread the result.
 function participantRow(p, opts = {}) {
-  const rowClasses = [opts.error ? 'p-error' : '', p.withdrawn ? 'withdrawn-row' : ''].filter(Boolean).join(' ');
+  const name = nameOf(p.id);
+  const baseClass = [opts.error ? 'p-error' : '', p.withdrawn ? 'withdrawn-row' : ''].filter(Boolean).join(' ');
   const people = entryPeople(p);
-  const multi = people.length > 1;
-  const cells = [
-    el('td', {}, p.name,
-      p.withdrawn ? el('span', { class: 'badge warn', style: 'margin-left:0.4rem' }, 'withdrawn') : null,
+  const isDbl = people.length > 1;
+  const rs = isDbl ? { rowspan: '2' } : {};
+
+  const nameCell = (nm, withBadge) => el('td', { class: registrantOf(nm).present ? '' : 'absent' },
+    nm,
+    (withBadge && p.withdrawn) ? el('span', { class: 'badge warn', style: 'margin-left:0.4rem' }, 'withdrawn') : null,
+  );
+
+  const catCell = el('td', { class: 'mono', ...rs }, p.category);
+  const clsCell = el('td', { class: 'mono', ...rs }, p.class);
+  const noteCell = el('td', { class: 'p-note', ...rs },
+    (!isDbl && DOUBLES.has(p.category))
+      ? el('span', { class: 'badge badge-error', title: 'Doubles entry without a partner — pair them up before drawing groups.' }, 'no partner')
+      : null,
+  );
+  const actionsCell = el('td', { ...rs },
+    p.withdrawn
+      ? el('button', { class: 'ghost', on: { click: async () => {
+          if (!confirm(`Reinstate ${name}? They become eligible for future pairings. Existing walkover results stay — undo them per-match in Scoring/Bracket if needed.`)) return;
+          await post(`/api/participants/${p.id}/reinstate`); await refresh();
+        } } }, 'Reinstate')
+      : el('button', { class: 'ghost', on: { click: async () => {
+          if (!confirm(`Withdraw ${name}? All their unplayed group matches and their active bracket slot will be marked as walkovers for the opponent. Future round-robin pairings will be regenerated.`)) return;
+          await post(`/api/participants/${p.id}/withdraw`); await refresh();
+        } } }, 'Withdraw'),
+    ' ',
+    el('button', { class: 'ghost', on: { click: async () => {
+      if (!confirm(`Remove ${name}?`)) return;
+      await del(`/api/participants/${p.id}`); await refresh();
+    } } }, 'Remove'),
+    DOUBLES.has(p.category) ? el('div', { class: 'pair-row' }, pairingControl(p)) : null,
+  );
+
+  if (!isDbl) {
+    const nm = people[0];
+    return [el('tr', { class: baseClass },
+      nameCell(nm, true),
+      el('td', {}, clubOf(nm)),
+      catCell, clsCell,
+      el('td', { class: 'p-check' }, paidControl(nm, false)),
+      el('td', { class: 'p-amount' }, amountControl(nm, false)),
+      noteCell, actionsCell,
+    )];
+  }
+
+  const [n1, n2] = people;
+  return [
+    el('tr', { class: baseClass },
+      nameCell(n1, true),
+      el('td', {}, clubOf(n1)),
+      catCell, clsCell,
+      el('td', { class: 'p-check' }, paidControl(n1, false)),
+      el('td', { class: 'p-amount' }, amountControl(n1, false)),
+      noteCell, actionsCell,
     ),
-    el('td', {}, p.club),
-    el('td', { class: 'mono' }, p.category),
-    el('td', { class: 'mono' }, p.class),
-    // Paid / Amount are per person — a doubles entry shows one control per partner.
-    el('td', { class: 'p-check p-payppl' }, ...people.map(nm => paidControl(nm, multi))),
-    el('td', { class: 'p-amount p-payppl' }, ...people.map(nm => amountControl(nm, multi))),
-    el('td', { class: 'p-note' },
-      opts.error ? el('span', { class: 'badge badge-error', title: 'Doubles entry without a partner — pair them up before drawing groups.' }, 'no partner') : null,
+    el('tr', { class: (baseClass + ' partner-row').trim() },
+      nameCell(n2, false),
+      el('td', {}, clubOf(n2)),
+      el('td', { class: 'p-check' }, paidControl(n2, false)),
+      el('td', { class: 'p-amount' }, amountControl(n2, false)),
     ),
-    el('td', {},
-      p.withdrawn
-        ? el('button', { class: 'ghost', on: { click: async () => {
-            if (!confirm(`Reinstate ${p.name}? They become eligible for future pairings. Existing walkover results stay — undo them per-match in Scoring/Bracket if needed.`)) return;
-            await post(`/api/participants/${p.id}/reinstate`); await refresh();
-          } } }, 'Reinstate')
-        : el('button', { class: 'ghost', on: { click: async () => {
-            if (!confirm(`Withdraw ${p.name}? All their unplayed group matches and their active bracket slot will be marked as walkovers for the opponent. Future round-robin pairings will be regenerated.`)) return;
-            await post(`/api/participants/${p.id}/withdraw`); await refresh();
-          } } }, 'Withdraw'),
-      ' ',
-      el('button', { class: 'ghost', on: { click: async () => {
-        if (!confirm(`Remove ${p.name}?`)) return;
-        await del(`/api/participants/${p.id}`); await refresh();
-      } } }, 'Remove')),
   ];
-  return el('tr', { class: rowClasses }, ...cells);
 }
 
 function participantsTable(rows, opts = {}) {
@@ -774,8 +820,10 @@ function makeSection(key, summary, body) {
 function renderParticipants() {
   renderRegistration();
   // A doubles entry needs both partners checked in before it's "in play".
+  // An entry shows in Player if ANY of its people are present (a doubles team
+  // with one partner checked in still appears; the absent partner shows red).
   const presentEntries = state.participants.filter(p =>
-    entryPeople(p).every(nm => registrantOf(nm).present));
+    entryPeople(p).some(nm => registrantOf(nm).present));
   renderParticipantList($('#players-list'), $('#players-toolbar'), presentEntries, {
     showPresent: false,
     showErrors: false,
@@ -786,53 +834,100 @@ function renderParticipants() {
 }
 
 // -- Registration: one line per human ----------------------------------------
-// Underlying data stays one participant row per (name, category, class); doubles
-// are stored as a single "A & B" row. For the per-person view we split doubles
-// on " & " so each human appears once, listing every discipline they entered.
-// A doubles entry therefore contributes to BOTH partners' lines (shared row).
+// A participant row stores players[] (1 = singles / partnerless doubles, 2 =
+// paired team). For the per-person view we expand players so each human appears
+// once, listing every discipline they entered. A paired doubles entry therefore
+// contributes to BOTH partners' lines (shared row). Per-person club / check-in /
+// fee come from registrantOf(name).
 function entryPeople(p) {
-  if (DOUBLES.has(p.category) && p.name.includes('&')) {
-    return p.name.split('&').map(s => s.trim()).filter(Boolean);
-  }
-  const n = p.name.trim();
-  return n ? [n] : [];
+  return p.players;
 }
 
-// Aggregate rows into { name, club, entries[] } keyed by individual name
-// (case-insensitive). Club prefers a singles entry's club over a combined
-// doubles club. Returns name-sorted.
+// Aggregate rows into { name, club, entries[] } keyed by individual name.
 function buildPeople(entries) {
   const people = new Map();
   for (const p of entries) {
-    const singles = !DOUBLES.has(p.category);
     for (const nm of entryPeople(p)) {
-      const key = nm.toLowerCase();
+      const key = personKey(nm);
       let person = people.get(key);
-      if (!person) { person = { name: nm, club: '', entries: [] }; people.set(key, person); }
+      if (!person) { person = { name: nm, entries: [] }; people.set(key, person); }
       person.entries.push(p);
-      if (p.club && (singles || !person.club)) person.club = p.club;
     }
   }
+  for (const person of people.values()) person.club = clubOf(person.name);
   return [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// The other player(s) of an entry, excluding `person` (empty for singles).
+function partnersOf(person, e) {
+  return e.players.filter(nm => personKey(nm) !== personKey(person.name));
 }
 
 function disciplineTags(person) {
   return person.entries
-    .map(e => ({
-      text: `${e.category || '?'}-${e.class || '?'}`,
-      cat: e.category, cls: e.class,
-      missingPartner: isMissingPartner(e),
-    }))
+    .map(e => {
+      const dbl = DOUBLES.has(e.category);
+      const partners = partnersOf(person, e);
+      const missing = isMissingPartner(e);
+      const title = dbl
+        ? (missing ? 'No partner yet — pair them up before drawing' : `Partner: ${partners.join(' & ')}`)
+        : '';
+      return { text: `${e.category || '?'}-${e.class || '?'}`, cat: e.category, cls: e.class, missingPartner: missing, title };
+    })
     .sort((a, b) =>
       (CATEGORY_ORDER.indexOf(a.cat) - CATEGORY_ORDER.indexOf(b.cat)) ||
       (CLASS_ORDER.indexOf(a.cls) - CLASS_ORDER.indexOf(b.cls)));
 }
+
+// Unpaired doubles entries that could partner `entry` (same category + class,
+// not the entry itself).
+function pairCandidates(entry) {
+  return state.participants.filter(c =>
+    c.id !== entry.id &&
+    DOUBLES.has(c.category) &&
+    c.category === entry.category &&
+    c.class === entry.class &&
+    c.players.length === 1,
+  );
+}
+
+async function pairWith(entryId, partnerId) {
+  await post(`/api/participants/${entryId}/pair`, { partnerId });
+  await refresh();
+}
+async function unpair(entryId) {
+  await post(`/api/participants/${entryId}/unpair`);
+  await refresh();
+}
+
+// Pair / unpair control for one doubles entry (shared by the Registration info
+// box and the Player tab).
+function pairingControl(entry) {
+  if (entry.players.length > 1) {
+    return el('button', { class: 'ghost small', title: 'Split this team back into two solo entries',
+      on: { click: () => { if (confirm(`Unpair ${entry.players.join(' & ')}? Each becomes a partnerless ${entry.category}-${entry.class} entry.`)) unpair(entry.id); } } }, 'Unpair');
+  }
+  const cands = pairCandidates(entry);
+  if (cands.length === 0) return el('span', { class: 'muted' }, 'no unpaired partner in this draw');
+  const sel = el('select', { class: 'pair-select' },
+    el('option', { value: '' }, 'Pick partner…'),
+    ...cands.map(c => el('option', { value: c.id }, `${c.players[0]}${clubOf(c.players[0]) ? ` (${clubOf(c.players[0])})` : ''}`)),
+  );
+  return el('span', { class: 'pair-pick' },
+    sel,
+    el('button', { class: 'ghost small', on: { click: () => { if (sel.value) pairWith(entry.id, sel.value); } } }, 'Pair'),
+  );
+}
+
+const regInfoOpen = new Set(); // person keys whose partner info box is expanded
 
 function personRow(person) {
   const reg = registrantOf(person.name);
   const withdrawn = person.entries.every(e => e.withdrawn);
   const nEntries = person.entries.length;
   const plural = nEntries === 1 ? 'entry' : 'entries';
+  const hasDoubles = person.entries.some(e => DOUBLES.has(e.category));
+  const pkey = personKey(person.name);
 
   return el('tr', { class: withdrawn ? 'withdrawn-row' : '' },
     el('td', {}, person.name,
@@ -840,11 +935,17 @@ function personRow(person) {
       reg.present ? el('span', { class: 'badge ok', style: 'margin-left:0.4rem' }, 'present') : null,
     ),
     el('td', {}, person.club),
-    el('td', { class: 'p-disc' }, ...disciplineTags(person).map(t =>
-      el('span', {
-        class: 'disc-tag' + (t.missingPartner ? ' warn' : ''),
-        ...(t.missingPartner ? { title: 'Doubles entry without a partner — pair them up before drawing groups.' } : {}),
-      }, t.text))),
+    el('td', { class: 'p-disc' },
+      ...disciplineTags(person).map(t =>
+        el('span', {
+          class: 'disc-tag' + (t.missingPartner ? ' warn' : ''),
+          ...(t.title ? { title: t.title } : {}),
+        }, t.text)),
+      hasDoubles
+        ? el('button', { class: 'info-btn', title: 'Partner info / edit pairing',
+            on: { click: () => { if (regInfoOpen.has(pkey)) regInfoOpen.delete(pkey); else regInfoOpen.add(pkey); renderRegistration(); } } }, 'ⓘ')
+        : null,
+    ),
     el('td', { class: 'p-check' },
       el('input', { type: 'checkbox', title: 'Checked in at the venue',
         ...(reg.present ? { checked: true } : {}),
@@ -872,12 +973,40 @@ function personRow(person) {
       ' ',
       el('button', { class: 'ghost', on: { click: async () => {
         const ids = person.entries.map(e => e.id);
-        const shared = person.entries.some(e => DOUBLES.has(e.category) && e.name.includes('&'));
+        const shared = person.entries.some(e => e.players.length > 1);
         const note = shared ? '\n\nNote: a doubles entry is shared — removing it also drops it from the partner.' : '';
         if (!confirm(`Remove ${person.name} and all ${ids.length} of their ${plural}?${note}`)) return;
         await post('/api/participants/bulk-delete', { ids });
         await refresh();
       } } }, 'Remove')),
+  );
+}
+
+// Expandable info box (one extra table row) listing the person's doubles/mix
+// partners + the pair/unpair control.
+function personInfoRow(person) {
+  const doubles = person.entries.filter(e => DOUBLES.has(e.category));
+  return el('tr', { class: 'info-row' },
+    el('td', { colspan: '7' },
+      el('div', { class: 'info-box' },
+        el('strong', {}, 'Partners'),
+        ...doubles.map(e => {
+          const partners = partnersOf(person, e);
+          return el('div', { class: 'info-line' },
+            el('span', { class: 'mono disc-tag' }, `${e.category}-${e.class}`),
+            partners.length
+              ? el('span', {}, ...partners.map(nm => el('span', { class: 'info-partner' },
+                  `${nm}`,
+                  clubOf(nm) ? el('span', { class: 'muted' }, ` · ${clubOf(nm)}`) : null,
+                  registrantOf(nm).present ? el('span', { class: 'badge ok', style: 'margin-left:0.3rem' }, 'present') : null,
+                  registrantOf(nm).paid ? el('span', { class: 'badge muted', style: 'margin-left:0.3rem' }, 'paid') : null,
+                )))
+              : el('span', { class: 'muted' }, 'no partner yet'),
+            el('span', { class: 'info-pair' }, pairingControl(e)),
+          );
+        }),
+      ),
+    ),
   );
 }
 
@@ -905,6 +1034,11 @@ function renderRegistration() {
     root.replaceChildren(el('p', { class: 'muted' }, 'No participants yet.'));
     return;
   }
+  const rows = [];
+  for (const person of people) {
+    rows.push(personRow(person));
+    if (regInfoOpen.has(personKey(person.name))) rows.push(personInfoRow(person));
+  }
   root.replaceChildren(
     el('table', { class: 'participants-table registration-table' },
       el('thead', {}, el('tr', {},
@@ -916,13 +1050,13 @@ function renderRegistration() {
         el('th', { class: 'p-amount' }, 'Amount'),
         el('th', {}, ''),
       )),
-      el('tbody', {}, ...people.map(personRow)),
+      el('tbody', {}, ...rows),
     ),
   );
 }
 
 function renderParticipantList(root, toolbar, list, opts) {
-  const sorted = (arr) => [...arr].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = (arr) => [...arr].sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id)));
   const errors = opts.showErrors ? list.filter(isMissingPartner) : [];
 
   // Toolbar: per-person counts (a doubles entry covers two people) + fee summary.
@@ -956,7 +1090,7 @@ function renderParticipantList(root, toolbar, list, opts) {
       const arr = grouped.get(cat);
       if (!arr) continue;
       rows.push(classDivider(`${cat} · missing partner`, arr, opts));
-      for (const p of sorted(arr)) rows.push(participantRow(p, { ...opts, error: true }));
+      for (const p of sorted(arr)) rows.push(...participantRow(p, { ...opts, error: true }));
     }
     sections.push(makeSection(
       `${opts.keyPrefix}:__errors__`,
@@ -1015,12 +1149,12 @@ function renderCategorySection(cat, list, sorted, opts) {
     if (!arr) continue;
     seenCls.add(cls);
     rows.push(classDivider(cls, arr, opts));
-    for (const p of sorted(arr)) rows.push(participantRow(p, opts));
+    for (const p of sorted(arr)) rows.push(...participantRow(p, opts));
   }
   for (const [cls, arr] of byClass) {
     if (seenCls.has(cls)) continue;
     rows.push(classDivider(cls, arr, opts));
-    for (const p of sorted(arr)) rows.push(participantRow(p, opts));
+    for (const p of sorted(arr)) rows.push(...participantRow(p, opts));
   }
   const label = CATEGORY_LABEL[cat] ?? cat;
   return makeSection(
@@ -1063,7 +1197,14 @@ function setParticipantFormErrors(missing) {
   errEl.hidden = false;
 }
 
+// Show the optional Player-2 box only for doubles categories.
+function syncPartnerBox() {
+  const cat = $('#add-participant').elements.category.value;
+  $('#partner-box').hidden = !DOUBLES.has(cat);
+}
+
 $('#add-participant').addEventListener('change', (e) => {
+  if (e.target.name === 'category') syncPartnerBox();
   if (e.target.name === 'category' || e.target.name === 'class') {
     if (!$('#add-participant-error').hidden) setParticipantFormErrors(participantFormMissing());
   }
@@ -1074,13 +1215,18 @@ $('#add-participant').addEventListener('submit', async (e) => {
   const missing = participantFormMissing();
   if (missing.length > 0) { setParticipantFormErrors(missing); return; }
   const fd = new FormData(e.target);
+  const players = [{ name: (fd.get('name') || '').trim(), club: fd.get('club') || '' }];
+  if (DOUBLES.has(fd.get('category'))) {
+    const n2 = (fd.get('name2') || '').trim();
+    if (n2) players.push({ name: n2, club: fd.get('club2') || '' });
+  }
   await post('/api/participants', {
-    name: fd.get('name'),
-    club: fd.get('club') || '',
     category: fd.get('category'),
     class: fd.get('class'),
+    players,
   });
   e.target.reset();
+  syncPartnerBox();
   setParticipantFormErrors([]);
   await refresh();
 });
@@ -1311,8 +1457,8 @@ function renderMembersPanel(g) {
                   await refresh();
                 } },
               }),
-              p.name,
-              el('span', { class: 'muted' }, ` ${p.club ? '· ' + p.club : ''}`),
+              nameOf(p.id),
+              el('span', { class: 'muted' }, ` ${entryClub(p) ? '· ' + entryClub(p) : ''}`),
             ),
           ),
         ),
@@ -1676,7 +1822,7 @@ function computeStandings(g) {
     const p = state.participants.find(p => p.id === id);
     if (!p) continue;
     tally.set(id, {
-      participantId: id, name: p.name,
+      participantId: id, name: nameOf(p.id),
       played: 0, won: 0, lost: 0,
       setsWon: 0, setsLost: 0,
       pointsWon: 0, pointsLost: 0,
@@ -2631,7 +2777,7 @@ function renderBracketWizard() {
     if (w.filter) {
       const needle = w.filter.toLowerCase();
       const p = state.participants.find(x => x.id === r.participantId);
-      const hay = `${r.name} ${p?.club ?? ''}`.toLowerCase();
+      const hay = `${r.name} ${p ? entryClub(p) : ''}`.toLowerCase();
       if (!hay.includes(needle)) return false;
     }
     return true;

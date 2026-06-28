@@ -7,23 +7,34 @@ export const Score = z.array(SetScore).max(5);
 // Class: skill bracket (S = elite, A/B/C/D descending).
 // Both are open strings so the operator can introduce ad-hoc values; the UI
 // constrains the common ones via select inputs.
+//
+// A participant row is one entry in one (category, class). `players` holds the
+// player name(s): length 1 = a singles entry OR a partnerless doubles entry;
+// length 2 = a paired doubles team. The display name is derived by joining with
+// " & " (see nameOf). All PER-PERSON attributes (club, check-in, fee) live in
+// the Registrant map keyed by normalised name, never on this row — so the same
+// human across several entries shares one club/check-in/fee.
 export const Participant = z.object({
   id: z.string(),
-  name: z.string().min(1),
-  club: z.string().default(''),
+  players: z.array(z.string().min(1)).min(1).max(2),
   category: z.string().default(''),
   class: z.string().default(''),
   withdrawn: z.boolean().default(false),
 });
 export type Participant = z.infer<typeof Participant>;
 
-// Check-in + entry-fee tracking is PER PERSON, not per participant row: a
-// doubles entry is one row shared by two people, but each of them checks in and
-// pays their own fee. Registrants are therefore stored in a map keyed by the
-// person's normalised name (lower-cased, trimmed — the same key the admin UI
-// derives when it splits "A & B" doubles entries into individuals).
-// `present` = showed up at the venue; `paid`/`paidAmount` = their own fee.
+// Display name for a participant entry: the player names joined with " & "
+// (one name for singles / partnerless doubles, two for a paired team).
+export function displayName(p: Participant): string {
+  return p.players.join(' & ');
+}
+
+// Per-person profile, keyed by the player's normalised name (lower-cased,
+// trimmed — the same key the admin UI derives from `players`). `club` is the
+// player's own club; `present` = showed up at the venue; `paid`/`paidAmount` =
+// their own fee. A doubles team's two members each have their own Registrant.
 export const Registrant = z.object({
+  club: z.string().default(''),
   present: z.boolean().default(false),
   paid: z.boolean().default(false),
   paidAmount: z.number().nonnegative().default(0),
@@ -144,6 +155,22 @@ export const Tournament = z.preprocess((raw) => {
       obj.knockouts = [];
     }
     delete obj.knockout;
+  }
+  // Migrate legacy participant shape { name, club } → { players[] }. Old doubles
+  // rows ("A & B") split into two players; the combined `club` is dropped (club
+  // is now per-person in `registrants`, re-entered via the UI). Group/bracket
+  // references are by participant id, so they keep working.
+  if (Array.isArray(obj.participants)) {
+    obj.participants = (obj.participants as Record<string, unknown>[]).map((p) => {
+      if (p && p.players === undefined && typeof p.name === 'string') {
+        const players = p.name.includes(' & ')
+          ? p.name.split('&').map(s => s.trim()).filter(Boolean)
+          : [p.name.trim()].filter(Boolean);
+        const { name: _name, club: _club, ...rest } = p;
+        return { ...rest, players: players.length ? players : ['?'] };
+      }
+      return p;
+    });
   }
   return obj;
 }, z.object({

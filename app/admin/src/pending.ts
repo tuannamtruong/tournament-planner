@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { Tournament, Participant, Group, Bracket, Match } from './schema.ts';
+import { displayName, type Tournament, type Participant, type Group, type Bracket, type Match } from './schema.ts';
 
 const DATA_FILE = process.env.TP_DATA_FILE
   ? path.resolve(process.env.TP_DATA_FILE)
@@ -141,11 +141,11 @@ function participantTag(p: Participant | null, fallback = '?'): string {
   if (!p) return fallback;
   const cls = p.class ? `/${p.class}` : '';
   const cat = p.category || '?';
-  return `"${p.name}" (${cat}${cls})`;
+  return `"${displayName(p)}" (${cat}${cls})`;
 }
 
 function participantName(p: Participant | null, fallback = '?'): string {
-  return p?.name ?? fallback;
+  return p ? displayName(p) : fallback;
 }
 
 function groupTag(g: Group | null, fallback = '?'): string {
@@ -176,7 +176,10 @@ function describeEntry(entry: PendingEntry): { tab: Tab; summary: string } {
     case 'add_participant': {
       const cat = (payload.category as string) || '?';
       const cls = payload.class ? `/${payload.class}` : '';
-      return { tab: 'participants', summary: `Added "${payload.name ?? ''}" (${cat}${cls})` };
+      const players = Array.isArray(payload.players)
+        ? (payload.players as Array<{ name?: string }>).map(pl => pl?.name ?? '').filter(Boolean).join(' & ')
+        : '';
+      return { tab: 'participants', summary: `Added "${players}" (${cat}${cls})` };
     }
     case 'patch_participant': {
       const p = findParticipant(snap, target);
@@ -193,6 +196,13 @@ function describeEntry(entry: PendingEntry): { tab: Tab; summary: string } {
       return { tab: 'participants', summary: `Withdrew ${participantTag(findParticipant(snap, target), target)}` };
     case 'reinstate_participant':
       return { tab: 'participants', summary: `Reinstated ${participantTag(findParticipant(snap, target), target)}` };
+    case 'pair_participants': {
+      const a = findParticipant(snap, target);
+      const b = findParticipant(snap, (payload.partnerId as string) ?? '');
+      return { tab: 'participants', summary: `Paired ${participantName(a, target)} with ${participantName(b, '?')}` };
+    }
+    case 'unpair_participant':
+      return { tab: 'participants', summary: `Unpaired ${participantTag(findParticipant(snap, target), target)}` };
     case 'bulk_remove_participants':
       return { tab: 'participants', summary: `Bulk-deleted ${payload.count ?? '?'} participants` };
     case 'import_csv':
