@@ -14,11 +14,11 @@ await test('overview-strip', async ({ base, api }) => {
   // Seed four round-robin groups (each with a generated round) so the Groups
   // tab is tall enough to scroll the Overview card off the top.
   for (let g = 0; g < 4; g++) {
-    for (const [name, seed] of [['A', 1], ['B', 2], ['C', 3], ['D', 4]]) {
-      await api('POST', '/api/participants', { name: `${name}${g}`, club: 'C', category: 'WS', class: 'A', seed });
+    for (const name of ['A', 'B', 'C', 'D']) {
+      await api('POST', '/api/participants', { category: 'WS', class: 'A', players: [{ name: `${name}${g}`, club: 'C' }] });
     }
     const s = await api('GET', '/api/state');
-    const ps = s.participants.filter(p => p.name.endsWith(String(g)));
+    const ps = s.participants.filter(p => p.players[0].endsWith(String(g)));
     const grp = await makeRoundRobinGroup(api, ps, `Group ${g}`);
     await api('POST', `/api/groups/${grp.id}/next-round`);
   }

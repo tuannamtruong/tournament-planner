@@ -150,8 +150,8 @@ export async function test(name, fn, opts) {
 // Seed helpers shared across feature scripts so each can stand up just the
 // prerequisites it needs (split scripts can't rely on a prior step's state).
 export async function addFourPlayers(api) {
-  for (const [name, seed] of [['Alice', 1], ['Bob', 2], ['Cara', 3], ['Dan', 4]]) {
-    await api('POST', '/api/participants', { name, club: 'TV Driver', category: 'WS', class: 'A', seed });
+  for (const name of ['Alice', 'Bob', 'Cara', 'Dan']) {
+    await api('POST', '/api/participants', { category: 'WS', class: 'A', players: [{ name, club: 'TV Driver' }] });
   }
   const s = await api('GET', '/api/state');
   return s.participants;

@@ -9,7 +9,7 @@ import { test, assert, makeRoundRobinGroup } from './lib/harness.mjs';
 
 await test('jump-to-matches', async ({ base, api }) => {
   // Seed: 2 participants, a round-robin group with both, one round.
-  const mk = async (name) => (await api('POST', '/api/participants', { name, club: '', category: 'MS', class: 'A', seed: 0 }));
+  const mk = async (name) => (await api('POST', '/api/participants', { category: 'MS', class: 'A', players: [{ name, club: '' }] }));
   await mk('Alice');
   const stateB = await mk('Bob');
   const players = stateB.participants;

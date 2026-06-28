@@ -21,7 +21,7 @@ await test('overview-render', async ({ base, api }) => {
   for (const { cat, cls } of seed) {
     const ids = [];
     for (const n of ['P1', 'P2', 'P3', 'P4']) {
-      const s = await api('POST', '/api/participants', { name: `${cat}${cls}-${n}`, club: 'C', category: cat, class: cls, seed: 0 });
+      const s = await api('POST', '/api/participants', { category: cat, class: cls, players: [{ name: `${cat}${cls}-${n}`, club: 'C' }] });
       ids.push(s.participants.at(-1).id);
     }
     const g = await api('POST', '/api/groups', { name: `${cat}-${cls} G1`, mode: 'round_robin', category: cat, classes: [cls], members: ids });
