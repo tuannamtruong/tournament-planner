@@ -49,11 +49,6 @@ function renderMatch(slot, setColumns) {
   const p2Won = !!slot.winner && slot.p2 && slot.winner === slot.p2;
   const isWalkover = !!slot.walkover;
 
-  // Show the better (lower) seed in the match as the left badge — mirrors how
-  // bracket sheets badge the top-seeded entrant.
-  const seeds = [slot.p1Seed, slot.p2Seed].filter(n => typeof n === 'number' && n > 0);
-  const seedBadge = seeds.length ? Math.min(...seeds) : '';
-
   function row(name, won, sideIdx) {
     const cells = [];
     cells.push(el('div', { class: 'bm-name' + (won ? ' winner' : '') }, name || '—'));
@@ -77,7 +72,6 @@ function renderMatch(slot, setColumns) {
 
   const classes = ['bracket-match', slot.status || 'pending', isWalkover ? 'walkover' : ''].filter(Boolean).join(' ');
   return el('div', { class: classes },
-    el('div', { class: 'bm-seed' }, seedBadge === '' ? '' : String(seedBadge)),
     el('div', { class: 'bm-rows' },
       row(slot.p1, p1Won, 0),
       row(slot.p2, p2Won, 1),

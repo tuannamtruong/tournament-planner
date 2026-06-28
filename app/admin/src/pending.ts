@@ -176,8 +176,7 @@ function describeEntry(entry: PendingEntry): { tab: Tab; summary: string } {
     case 'add_participant': {
       const cat = (payload.category as string) || '?';
       const cls = payload.class ? `/${payload.class}` : '';
-      const seed = payload.seed ? `, seed ${payload.seed}` : '';
-      return { tab: 'participants', summary: `Added "${payload.name ?? ''}" (${cat}${cls}${seed})` };
+      return { tab: 'participants', summary: `Added "${payload.name ?? ''}" (${cat}${cls})` };
     }
     case 'patch_participant': {
       const p = findParticipant(snap, target);

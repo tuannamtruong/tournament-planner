@@ -110,12 +110,6 @@ function nameOf(state: Tournament, id: string): string {
   return state.participants.find(p => p.id === id)?.name ?? id;
 }
 
-function seedOf(state: Tournament, id: string | null): number | null {
-  if (!id || id === '__bye__') return null;
-  const p = state.participants.find(p => p.id === id);
-  return p && p.seed > 0 ? p.seed : null;
-}
-
 export function deriveViews(state: Tournament) {
   const groups = state.groups.map(g => ({
     id: g.id,
@@ -152,8 +146,6 @@ export function deriveViews(state: Tournament) {
         slot: s.slot,
         p1: s.p1 ? nameOf(state, s.p1) : null,
         p2: s.p2 ? nameOf(state, s.p2) : null,
-        p1Seed: seedOf(state, s.p1),
-        p2Seed: seedOf(state, s.p2),
         court: s.court,
         score: s.score,
         status: s.status,

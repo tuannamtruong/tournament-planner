@@ -873,7 +873,6 @@ $('#add-participant').addEventListener('submit', async (e) => {
     club: fd.get('club') || '',
     category: fd.get('category'),
     class: fd.get('class'),
-    seed: Number(fd.get('seed') || 0),
   });
   e.target.reset();
   setParticipantFormErrors([]);
@@ -1226,16 +1225,16 @@ $('#add-group').addEventListener('submit', async (e) => {
   syncDefaultGroupName();
 });
 
-// Snake-seed N members across `numGroups` buckets of `perGroup` each. Top
-// seeds spread evenly; unseeded (seed===0) sort to the end.
-function snakeSeedIds(members, numGroups, perGroup) {
-  const ranked = [...members].sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
+// Distribute N members across `numGroups` buckets of `perGroup` each, in the
+// order given (snake/boustrophedon pattern so any leftover lands one-per-group
+// from the top rather than piling into the last bucket).
+function distributeIds(members, numGroups, perGroup) {
   const buckets = Array.from({ length: numGroups }, () => []);
   for (let i = 0; i < numGroups * perGroup; i++) {
     const lap = Math.floor(i / numGroups);
     const col = i % numGroups;
     const idx = lap % 2 === 0 ? col : numGroups - 1 - col;
-    buckets[idx].push(ranked[i].id);
+    buckets[idx].push(members[i].id);
   }
   return buckets;
 }
@@ -1289,7 +1288,7 @@ $('#auto-generate-groups').addEventListener('click', async () => {
     totalLeftover += eligible.length - n * playersPerGroup;
     if (n === 0) return;
     const names = reserveGroupNames(category, classesForGroup, n);
-    const buckets = snakeSeedIds(eligible, n, playersPerGroup);
+    const buckets = distributeIds(eligible, n, playersPerGroup);
     for (let i = 0; i < n; i++) {
       plans.push({ name: names[i], classes: classesForGroup, memberIds: buckets[i] });
     }
@@ -1322,26 +1321,9 @@ $('#auto-generate-groups').addEventListener('click', async () => {
       : `Need ${playersPerGroup} eligible participants; have too few.`;
     return alert(detail);
   }
-  const leftover = eligible.length - numGroups * playersPerGroup;
-  const sizesMsg = leftover
-    ? ` (${leftover} group(s) of ${playersPerGroup + 1}, ${numGroups - leftover} of ${playersPerGroup})`
-    : '';
-  const msg = `Create ${numGroups} group(s) of ${playersPerGroup}${sizesMsg}?`;
-  if (!confirm(msg)) return;
-
-  // Snake-seed across all eligible players. Spreads top seeds evenly and
-  // distributes any leftover (eligible % playersPerGroup) one per group from
-  // the top — e.g. 14 → 5/5/4 rather than 6/4/4 or leaving 2 unassigned.
-  const ranked = [...eligible].sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
-  const buckets = Array.from({ length: numGroups }, () => []);
-  for (let i = 0; i < ranked.length; i++) {
-    const lap = Math.floor(i / numGroups);
-    const col = i % numGroups;
-    const idx = lap % 2 === 0 ? col : numGroups - 1 - col;
-    buckets[idx].push(ranked[i].id);
-  }
-  
-  if (!confirm(lines.join('\n'))) return;
+  const lines = plans.map(p => `• ${p.name} — ${p.memberIds.length} players`);
+  const tail = totalLeftover ? `\n\n${totalLeftover} eligible player(s) left over (not enough for another group of ${playersPerGroup}).` : '';
+  if (!confirm(`Create ${plans.length} group(s)?\n\n${lines.join('\n')}${tail}`)) return;
 
   for (const p of plans) {
     await post('/api/groups', { name: p.name, mode, category, classes: p.classes, members: p.memberIds });
@@ -2703,14 +2685,6 @@ function renderBracketSlot(kb, roundNo, slot) {
   const clickable = !!(slot.p1 && slot.p2);
   const isWalkover = !!slot.walkover;
 
-  const seedFor = (pid) => {
-    if (!pid || pid === '__bye__') return null;
-    const p = state.participants.find(x => x.id === pid);
-    return p && p.seed > 0 ? p.seed : null;
-  };
-  const seeds = [seedFor(slot.p1), seedFor(slot.p2)].filter(n => typeof n === 'number');
-  const seedBadge = seeds.length ? String(Math.min(...seeds)) : '';
-
   let rows, cols;
   if (isWalkover) {
     rows = buildWalkoverRows(a, b, slot.winner === slot.p1 ? 'p1' : 'p2', 1);
@@ -2736,7 +2710,6 @@ function renderBracketSlot(kb, roundNo, slot) {
     class: classes,
     ...(clickable ? { title: 'Open in Matches tab', on: { click: () => jumpToKoMatch(kb.id, roundNo, slot.slot, slot.status === 'done') } } : {}),
   },
-    el('div', { class: 'bm-seed' }, seedBadge),
     el('div', { class: 'bm-rows', style: `grid-template-columns: ${cols}` }, ...rows),
   );
 }

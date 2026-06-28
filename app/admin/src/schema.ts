@@ -13,7 +13,6 @@ export const Participant = z.object({
   club: z.string().default(''),
   category: z.string().default(''),
   class: z.string().default(''),
-  seed: z.number().int().nonnegative().default(0),
   withdrawn: z.boolean().default(false),
 });
 export type Participant = z.infer<typeof Participant>;

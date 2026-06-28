@@ -10,7 +10,6 @@ const NewParticipant = z.object({
   club: z.string().default(''),
   category: z.string().min(1),
   class: z.string().min(1),
-  seed: z.number().int().nonnegative().default(0),
 });
 
 const PatchParticipant = NewParticipant.partial().extend({
@@ -159,7 +158,6 @@ export async function participantRoutes(app: FastifyInstance) {
             club: row.club ?? row.Club ?? '',
             category: row.category ?? row.Category ?? '',
             class: row.class ?? row.Class ?? '',
-            seed: Number(row.seed ?? row.Seed ?? 0) || 0,
             withdrawn: false,
           });
         }
