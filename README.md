@@ -49,6 +49,8 @@ pnpm test       # vitest: pairing + standings
 
 Preview the spectator view against live data at `http://localhost:37325/view/` — the admin app mounts `app/result-site/` and serves the same derived `data/*.json` files S3 would. No S3 needed for local dev; leave `TP_BUCKET` unset and the publish loop becomes a no-op.
 
+To populate `tournament.json` with test data, use the seeding scripts: `make generate-data` (demo roster), `npx tsx scripts/simulate-tournament.ts` (build + play a whole tournament), or `make randomize-results` (re-randomize results for the existing groups/brackets). See [docs/Dev-deploy-test.md](docs/Dev-deploy-test.md#seeding--local-data).
+
 ### Setup
 
 1. **Provision infra with CloudFormation.** The stack creates the bucket and the `tp-publisher` IAM user with an inline publish policy scoped to `data/*`:
