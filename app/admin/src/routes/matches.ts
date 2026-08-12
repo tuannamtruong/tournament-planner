@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { mutate } from '../storage.ts';
+import { touch, assertRev } from '../rev.ts';
 import { Score, MatchStatus, Walkover } from '../schema.ts';
 
 const ScorePatch = z.object({
@@ -9,6 +10,9 @@ const ScorePatch = z.object({
   status: MatchStatus.optional(),
   court: z.string().optional(),
   walkover: Walkover.optional(),
+  // Optimistic-concurrency token: the match.rev the client read. If it no longer
+  // matches, another operator edited this match first → 409 Conflict.
+  baseRev: z.number().int().nonnegative().optional(),
 });
 
 const NewManualMatch = z.object({
@@ -30,6 +34,7 @@ export async function matchRoutes(app: FastifyInstance) {
         for (const r of g.rounds) {
           const m = r.matches.find(m => m.id === mid);
           if (!m) continue;
+          assertRev(m, patch.baseRev, 'This match');
           const now = new Date().toISOString();
           if (patch.walkover !== undefined) {
             m.walkover = patch.walkover;
@@ -46,6 +51,7 @@ export async function matchRoutes(app: FastifyInstance) {
             if (patch.status === 'live' && !m.startedAt) m.startedAt = now;
             if (patch.status === 'done' && !m.finishedAt) m.finishedAt = now;
           }
+          touch(m, now);
           return s;
         }
         throw new Error(`match ${mid} not found`);
@@ -85,6 +91,8 @@ export async function matchRoutes(app: FastifyInstance) {
           g.rounds.push(round);
           g.rounds.sort((a, b) => a.roundNo - b.roundNo);
         }
+        // A freshly created match starts at rev 0 (unedited) — touch() is only
+        // for modifications, so the first score edit's baseRev:0 engages OCC.
         round.matches.push({
           id: nanoid(10),
           p1: body.p1, p2: body.p2,
@@ -92,6 +100,7 @@ export async function matchRoutes(app: FastifyInstance) {
           score: [], status: 'pending',
           walkover: null,
           startedAt: null, finishedAt: null,
+          rev: 0, updatedAt: '', lastEditor: '',
         });
         return s;
       },

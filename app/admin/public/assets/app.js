@@ -1,6 +1,10 @@
-import { get, post, patch, put, del } from './api.js';
+import { get, post, patch, put, del, ConflictError } from './api.js';
 
 let state = null;
+// Global rev last loaded into `state`. The live-update poll compares the
+// server's rev against this to decide whether another operator changed
+// something and a re-fetch is needed.
+let lastSeenRev = -1;
 
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -138,6 +142,46 @@ async function refresh() {
   renderPointSystems();
   syncGroupPointSystemOptions();
   scheduleStripUpdate();
+  lastSeenRev = state.rev ?? lastSeenRev;
+}
+
+// -- Live updates + conflict UX ----------------------------------------------
+// Multiple operators edit the same tournament concurrently. We poll the cheap
+// /api/state/rev endpoint; when another operator's edit bumps the global rev,
+// we re-fetch. refresh() preserves focused inputs and open-panel state, so a
+// background reload doesn't disrupt active editing.
+async function pollRev() {
+  try {
+    const { rev } = await get('/api/state/rev');
+    if (lastSeenRev !== -1 && rev !== lastSeenRev) await refresh();
+    else lastSeenRev = rev;
+  } catch { /* offline / unreachable — retry next tick */ }
+}
+setInterval(pollRev, 2000);
+
+// Lightweight toast (no dependency). Auto-dismisses; stacks in a corner host.
+function notify(msg, kind = 'info') {
+  let host = $('#toast-host');
+  if (!host) { host = el('div', { id: 'toast-host' }); document.body.append(host); }
+  const t = el('div', { class: `toast toast-${kind}` }, msg);
+  host.append(t);
+  setTimeout(() => { t.classList.add('toast-out'); setTimeout(() => t.remove(), 300); }, 4500);
+}
+
+// Run a mutating edit; on an optimistic-concurrency conflict (another operator
+// changed the same record first) reload the current value and tell the operator
+// instead of clobbering it. Non-conflict errors propagate to the caller.
+async function saveEdit(fn) {
+  try {
+    await fn();
+  } catch (err) {
+    if (err instanceof ConflictError) {
+      await refresh();
+      notify(err.message || 'Someone else updated this — reloaded, re-enter if needed.', 'warn');
+      return;
+    }
+    throw err;
+  }
 }
 
 // Populate the group form's "point system" select from the saved library.
@@ -439,6 +483,34 @@ async function refreshPublishStatus() {
 }
 setInterval(refreshPublishStatus, 2000);
 
+// -- Multi-laptop sync status -------------------------------------------------
+// Separate indicator from Publish: this reflects sync of the canonical state
+// between operator laptops (S3 conditional writes), not the public result site.
+const shownConflicts = new Set();
+async function refreshSyncStatus() {
+  const dot = $('#sync-dot'), txt = $('#sync-text');
+  if (!dot) return;
+  try {
+    const s = await get('/api/sync/status');
+    dot.className = 'dot';
+    if (!s.enabled) { dot.style.display = 'none'; txt.textContent = ''; return; }
+    dot.style.display = '';
+    if (!s.online) { dot.classList.add('amber'); txt.textContent = 'Sync offline'; }
+    else if (s.conflicts.length) { dot.classList.add('red'); txt.textContent = `${s.conflicts.length} sync conflict(s)`; }
+    else { dot.classList.add('green'); txt.textContent = `Synced · ${s.nodeId}`; }
+    // Toast each newly-seen conflict once; clear the seen-set when none remain.
+    for (const c of s.conflicts) {
+      const k = `${c.kind}:${c.id}`;
+      if (shownConflicts.has(k)) continue;
+      shownConflicts.add(k);
+      const kept = c.winner === 'local' ? 'this laptop' : `the other laptop (${c.remoteEditor || '?'})`;
+      notify(`Sync conflict — ${c.label}: kept ${kept}'s version.`, 'warn');
+    }
+    if (s.conflicts.length === 0) shownConflicts.clear();
+  } catch { txt.textContent = 'Sync unreachable'; }
+}
+setInterval(refreshSyncStatus, 2000);
+
 $('#force-publish').addEventListener('click', async () => {
   try {
     await post('/api/publish/force');
@@ -660,8 +732,11 @@ function registrantOf(name) {
   return state.registrants?.[personKey(name)] ?? { club: '', present: false, paid: false, paidAmount: 0 };
 }
 async function patchRegistrant(name, body) {
-  await patch(`/api/registrants/${encodeURIComponent(personKey(name))}`, body);
-  await refresh();
+  await saveEdit(async () => {
+    await patch(`/api/registrants/${encodeURIComponent(personKey(name))}`,
+      { ...body, baseRev: registrantOf(name).rev ?? 0 });
+    await refresh();
+  });
 }
 // Name parts. For now the last whitespace-separated token is the last name.
 const firstName = (name) => name.trim().split(/\s+/)[0] || name;
@@ -1883,6 +1958,33 @@ function jumpToGroupMatches(g) {
   });
 }
 
+// Inverse of jumpToGroupMatches: from the Matches tab back to the group's
+// definition card in the Groups tab.
+function jumpToGroupDef(g) {
+  activateTab('groups');
+  requestAnimationFrame(() => {
+    const card = document.getElementById(`group-${g.id}`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.classList.remove('flash');
+    void card.offsetWidth; // restart the animation
+    card.classList.add('flash');
+  });
+}
+
+// Same, from the Matches tab to the bracket's card in the Bracket tab.
+function jumpToBracketDef(kb) {
+  activateTab('bracket');
+  requestAnimationFrame(() => {
+    const card = document.getElementById(`bracket-${kb.id}`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.classList.remove('flash');
+    void card.offsetWidth; // restart the animation
+    card.classList.add('flash');
+  });
+}
+
 function jumpToGroupMatch(g, m) {
   activateTab('matches');
   // Force the right section open (matches split into pending/done, and the
@@ -2273,7 +2375,10 @@ function renderMatches() {
       }
     }
     return el('div', { class: 'card', id: `matches-group-${g.id}` },
-      el('h3', {}, g.name),
+      el('h3', {}, el('a', {
+        class: 'card-jump', href: `#group-${g.id}`, title: 'Open in Groups tab',
+        on: { click: (e) => { e.preventDefault(); jumpToGroupDef(g); } },
+      }, g.name)),
       renderMatchesSection(g, 'pending', pendingCount, pendingRounds),
       renderMatchesSection(g, 'done', doneCount, doneRounds),
     );
@@ -2293,7 +2398,10 @@ function renderMatches() {
     const sorted = (m) => [...m.entries()].sort((a, b) => a[0] - b[0]).map(([roundNo, slots]) => ({ roundNo, slots }));
     const label = bracketLabel(kb);
     return el('div', { class: 'card', id: `matches-bracket-${kb.id}` },
-      el('h3', {}, kb.name, label ? el('span', { class: 'muted' }, ` (${label})`) : null,
+      el('h3', {}, el('a', {
+        class: 'card-jump', href: `#bracket-${kb.id}`, title: 'Open in Bracket tab',
+        on: { click: (e) => { e.preventDefault(); jumpToBracketDef(kb); } },
+      }, kb.name), label ? el('span', { class: 'muted' }, ` (${label})`) : null,
         el('span', { class: 'muted' }, ' · KO')),
       renderKnockoutMatchesSection(kb, 'pending', pendingCount, sorted(pendingByRound)),
       renderKnockoutMatchesSection(kb, 'done', doneCount, sorted(doneByRound)),
@@ -2434,7 +2542,10 @@ function renderMatchesSection(g, kind, count, rounds) {
     rounds.length === 0
       ? el('p', { class: 'muted' }, `No ${label.toLowerCase()} matches.`)
       : el('div', {}, ...rounds.map(r => el('div', {},
-          el('h4', {}, `Round ${r.roundNo}`),
+          el('h4', {}, el('a', {
+            class: 'card-jump', href: `#group-${g.id}`, title: 'Open in Groups tab',
+            on: { click: (e) => { e.preventDefault(); jumpToGroupDef(g); } },
+          }, `Round ${r.roundNo}`)),
           ...r.matches.map(m => renderMatchRow(g, m)),
         ))),
   );
@@ -2456,7 +2567,10 @@ function renderKnockoutMatchesSection(kb, kind, count, byRound) {
     byRound.length === 0
       ? el('p', { class: 'muted' }, `No ${label.toLowerCase()} matches.`)
       : el('div', {}, ...byRound.map(r => el('div', {},
-          el('h4', {}, bracketRoundLabel(kb.rounds.find(rr => rr.roundNo === r.roundNo) ?? r)),
+          el('h4', {}, el('a', {
+            class: 'card-jump', href: `#bracket-${kb.id}`, title: 'Open in Bracket tab',
+            on: { click: (e) => { e.preventDefault(); jumpToBracketDef(kb); } },
+          }, bracketRoundLabel(kb.rounds.find(rr => rr.roundNo === r.roundNo) ?? r))),
           ...r.slots.map(slot => renderKnockoutMatchRow(kb, r.roundNo, slot)),
         ))),
   );
@@ -2464,12 +2578,16 @@ function renderKnockoutMatchesSection(kb, kind, count, byRound) {
 
 function renderKnockoutMatchRow(kb, roundNo, slot) {
   async function setWalkover(side) {
-    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, { walkover: side });
-    await refresh();
+    await saveEdit(async () => {
+      await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, { walkover: side, baseRev: slot.rev ?? 0 });
+      await refresh();
+    });
   }
   async function clearWalkover() {
-    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, { walkover: null, status: 'pending' });
-    await refresh();
+    await saveEdit(async () => {
+      await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, { walkover: null, status: 'pending', baseRev: slot.rev ?? 0 });
+      await refresh();
+    });
   }
 
   const id = `ko-match-${kb.id}-${roundNo}-${slot.slot}`;
@@ -2496,17 +2614,21 @@ function renderKnockoutMatchRow(kb, roundNo, slot) {
     // KO toggle only swaps pending ↔ live; the "done" state comes from the
     // Win-for buttons in column 2 (a KO must have a winner before completing).
     const next = slot.status === 'pending' ? 'live' : 'pending';
-    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
-      score: readScoreFromContainer(rows), status: next, court: courtInput.value,
+    await saveEdit(async () => {
+      await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
+        score: readScoreFromContainer(rows), status: next, court: courtInput.value, baseRev: slot.rev ?? 0,
+      });
+      await refresh();
     });
-    await refresh();
   }
   async function winFor(playerId) {
     if (!playerId) return;
-    await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
-      score: readScoreFromContainer(rows), winner: playerId, court: courtInput.value,
+    await saveEdit(async () => {
+      await patch(`/api/knockouts/${kb.id}/round/${roundNo}/slot/${slot.slot}`, {
+        score: readScoreFromContainer(rows), winner: playerId, court: courtInput.value, baseRev: slot.rev ?? 0,
+      });
+      await refresh();
     });
-    await refresh();
   }
 
   const toggle = statusToggleCells(slot.status, false, advance);
@@ -2563,12 +2685,16 @@ function renderMatchRow(g, m) {
   }
 
   async function setWalkover(side) {
-    await patch(`/api/groups/${g.id}/matches/${m.id}`, { walkover: side });
-    await refresh();
+    await saveEdit(async () => {
+      await patch(`/api/groups/${g.id}/matches/${m.id}`, { walkover: side, baseRev: m.rev ?? 0 });
+      await refresh();
+    });
   }
   async function clearWalkover() {
-    await patch(`/api/groups/${g.id}/matches/${m.id}`, { walkover: null, status: 'pending' });
-    await refresh();
+    await saveEdit(async () => {
+      await patch(`/api/groups/${g.id}/matches/${m.id}`, { walkover: null, status: 'pending', baseRev: m.rev ?? 0 });
+      await refresh();
+    });
   }
 
   const courtInput = el('input', { class: 'court-input', value: m.court ?? '', placeholder: 'Court' });
@@ -2595,8 +2721,10 @@ function renderMatchRow(g, m) {
 
   async function save(status) {
     const score = readScoreFromContainer(rows);
-    await patch(`/api/groups/${g.id}/matches/${m.id}`, { score, status, court: courtInput.value });
-    await refresh();
+    await saveEdit(async () => {
+      await patch(`/api/groups/${g.id}/matches/${m.id}`, { score, status, court: courtInput.value, baseRev: m.rev ?? 0 });
+      await refresh();
+    });
   }
   async function advance() {
     const next = { pending: 'live', live: 'done', done: 'pending' }[m.status] ?? 'live';
@@ -2647,6 +2775,10 @@ function renderMatchRow(g, m) {
 let bracketWizard = null;
 // Per-candidate-row checkbox selection survives re-renders.
 const wizardSelected = new Set();
+
+// Bracket ids whose first-round pairings are currently being hand-edited
+// ("set who plays who"). Survives background refreshes so editing isn't lost.
+const bracketPairingEdit = new Set();
 
 function nextPow2(n) {
   let p = 1;
@@ -3109,8 +3241,11 @@ async function renameBracketRound(kb, round) {
 
 function renderBracketCard(kb) {
   const label = bracketLabel(kb);
+  const editing = bracketPairingEdit.has(kb.id);
+  const hasPlay = bracketHasPlay(kb);
   const cols = el('div', { class: 'bracket-cols' });
   for (const round of kb.rounds) {
+    const editRound = editing && round.roundNo === 1;
     const col = el('div', { class: 'bracket-round' },
       el('h4', { class: 'bracket-round-head' },
         el('span', {}, bracketRoundLabel(round)),
@@ -3122,21 +3257,107 @@ function renderBracketCard(kb) {
       ),
     );
     for (const slot of round.slots) {
-      col.append(renderBracketSlot(kb, round.roundNo, slot));
+      col.append(editRound
+        ? renderBracketSlotEditor(kb, slot)
+        : renderBracketSlot(kb, round.roundNo, slot));
     }
     cols.append(col);
   }
+
+  const editBtn = el('button', {
+    class: editing ? 'small' : 'ghost small',
+    ...(hasPlay && !editing ? { disabled: true, title: 'Pairings lock once a match has a score or goes live' } : {}),
+    on: { click: () => {
+      if (editing) bracketPairingEdit.delete(kb.id); else bracketPairingEdit.add(kb.id);
+      renderBracket();
+    } },
+  }, editing ? 'Done editing' : 'Edit pairings');
+
   return el('div', { class: 'card bracket-card', id: `bracket-${kb.id}` },
     el('div', { class: 'row', style: 'justify-content:space-between; align-items:center' },
       el('h3', {}, kb.name, label ? el('span', { class: 'muted' }, ` (${label})`) : null,
         el('span', { class: 'muted' }, ` · size ${kb.size}`)),
-      el('button', { class: 'danger', on: { click: async () => {
-        if (!confirm(`Delete bracket "${kb.name}"?`)) return;
-        await del(`/api/knockouts/${kb.id}`); await refresh();
-      } } }, 'Delete bracket'),
+      el('div', { class: 'row', style: 'gap:0.5rem' },
+        editBtn,
+        el('button', { class: 'danger', on: { click: async () => {
+          if (!confirm(`Delete bracket "${kb.name}"?`)) return;
+          await del(`/api/knockouts/${kb.id}`); await refresh();
+        } } }, 'Delete bracket'),
+      ),
     ),
+    editing
+      ? el('p', { class: 'muted', style: 'margin:0.25rem 0 0.5rem' },
+          'Set who plays who in the first round. A side left as “— BYE —” auto-advances the other player. Click “Done editing” when finished.')
+      : null,
     cols,
   );
+}
+
+// True once any match in the bracket has a real score or has gone live — at
+// that point hand-editing the first-round pairings would orphan results, so
+// the "Edit pairings" button is disabled.
+function bracketHasPlay(kb) {
+  for (const r of kb.rounds)
+    for (const s of r.slots)
+      if ((s.score && s.score.length) || s.status === 'live') return true;
+  return false;
+}
+
+// Non-withdrawn participants eligible for this bracket: category must match
+// (when the bracket fixes one) and class must be in the bracket's class list
+// (empty list = any class).
+function eligibleBracketParticipants(kb) {
+  const cat = kb.category || '';
+  const classes = kb.classes || [];
+  return state.participants.filter(p => {
+    if (p.withdrawn) return false;
+    if (cat && p.category !== cat) return false;
+    if (classes.length && !classes.includes(p.class)) return false;
+    return true;
+  });
+}
+
+// First-round slot rendered as two participant dropdowns. Each option pool is
+// the eligible participants minus anyone already placed in another slot of this
+// bracket (so a player can't be seeded twice), always keeping the slot's own
+// current picks selectable.
+function renderBracketSlotEditor(kb, slot) {
+  const placed = new Set();
+  for (const r of kb.rounds)
+    for (const s of r.slots)
+      for (const pid of [s.p1, s.p2])
+        if (pid && pid !== '__bye__') placed.add(pid);
+
+  const eligible = eligibleBracketParticipants(kb);
+
+  const mkSelect = (side) => {
+    const cur = slot[side] && slot[side] !== '__bye__' ? slot[side] : '';
+    const other = side === 'p1' ? slot.p2 : slot.p1;
+    const opts = [el('option', { value: '', ...(cur === '' ? { selected: true } : {}) }, '— BYE —')];
+    let curSeen = false;
+    for (const p of eligible) {
+      if (p.id === cur) curSeen = true;
+      else if (placed.has(p.id) || p.id === other) continue;  // taken elsewhere / already this slot's other side
+      opts.push(el('option', { value: p.id, ...(p.id === cur ? { selected: true } : {}) }, nameOf(p.id)));
+    }
+    if (cur && !curSeen) opts.splice(1, 0, el('option', { value: cur, selected: true }, nameOf(cur)));
+    return el('select', { class: 'pair-select',
+      on: { change: (e) => setSlotPlayer(kb, slot, side, e.target.value) } }, ...opts);
+  };
+
+  return el('div', { class: 'bracket-match pairing-edit' },
+    mkSelect('p1'),
+    el('div', { class: 'pairing-vs' }, 'vs'),
+    mkSelect('p2'),
+  );
+}
+
+async function setSlotPlayer(kb, slot, side, value) {
+  await saveEdit(async () => {
+    await patch(`/api/knockouts/${kb.id}/round/1/slot/${slot.slot}`,
+      { [side]: value || null, baseRev: slot.rev ?? 0 });
+    await refresh();
+  });
 }
 
 // Read-only display of a single slot, matching the public bracket grid.

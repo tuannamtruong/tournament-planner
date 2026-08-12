@@ -5,9 +5,9 @@ A small web app for running a badminton-style tournament (~100–500 participant
 Two surfaces, in different places:
 
 - **Result site** — read-only, hosted as static files on **S3 with website hosting enabled**. Two pages: `index.html` (group stage) and `knockout.html` (bracket).
-- **Admin site** — runs **locally on the tournament director's laptop** at `http://localhost:37325`. Owns the canonical tournament data as a JSON file. Imports participants, builds groups, runs pairings, enters scores, manages the knockout. On every change it bumps a `pendingChanges` counter; the operator clicks **Publish** to derive the view JSONs and push them to S3 via an IAM user.
+- **Admin site** — runs **locally on each operator's laptop** at `http://localhost:37325`. Holds a local copy of the tournament data as a JSON file. Imports participants, builds groups, runs pairings, enters scores, manages the knockout. On every change it bumps a `pendingChanges` counter; the operator clicks **Publish** to derive the view JSONs and push them to S3 via an IAM user.
 
-**There is no backend in AWS.** S3 stores static HTML/JS plus a handful of JSON files. No CloudFront, no ACM cert, no Route 53.
+**No compute backend in AWS** — no servers, CloudFront, ACM, or Route 53. S3 stores static HTML/JS, the public view JSONs, and (when multi-operator sync is configured) the **canonical `tournament.json` under a private prefix**. Multiple operator laptops stay in step optimistically (no locks) via S3 **conditional writes** (`If-Match`/ETag), with per-record revisions and a 3-way merge. See "Multi-operator sync" below. S3 object GET/PUT only, so cost stays within budget.
 
 > **Repo layout:** the entire runnable project lives under **`app/`** (`app/admin/`, `app/result-site/`, `app/scripts/`, `app/tests/`, `app/deploy/`, plus `package.json`, `Makefile`, `.env`). Only `README.md`, `CLAUDE.md`, and `docs/` sit at the repo root. Run all `pnpm`/`make` commands from `app/` (`cd app`, or `pnpm --prefix app …` / `make -C app …`). Paths below are written relative to the repo root, i.e. prefixed with `app/`.
 
@@ -17,8 +17,8 @@ Two surfaces, in different places:
 
 - **Cost-conscious.** Whole event should cost <$2 in AWS spend (excluding a new domain). Avoid anything that bills per-hour-while-idle.
 - **Short-lived.** One event. No multi-tenancy, no long-term migrations, no 10× scale planning.
-- **Single operator.** One person, one laptop, owns the source of truth. Scorekeepers at courts relay scores on paper or via a phone/tablet pointed at the operator's laptop over the venue LAN. **This assumption is load-bearing for the whole design — if it breaks, this architecture breaks.**
-- **Offline-tolerant.** Venue Wi-Fi may flap. The admin app must accept edits while disconnected; the operator clicks **Publish** once connectivity returns to push the accumulated state.
+- **Multiple operators, optimistic, no locks.** Several operators may edit at once, each on their own laptop. There is no live coordination server: S3 holds the canonical state and laptops reconcile through it with conditional-write OCC. Conflicts are detected **per record** (two scorekeepers editing different matches never collide) and resolved last-write-wins with a flag; concurrent edits to the *same* record surface a reload+notify. Scorekeepers at courts may still relay scores on paper or via a phone/tablet pointed at any operator's laptop over the venue LAN.
+- **Offline-tolerant.** Venue Wi-Fi may flap. Each admin app accepts edits while disconnected; they queue locally and reconcile (per-record last-write-wins) when connectivity returns. **Publish** likewise pushes the accumulated view JSONs once back online.
 
 ## Features
 
@@ -33,7 +33,7 @@ Single-page UI with tabbed sections in `app/admin/public/index.html`:
 - **Bracket** — create a 4/8/16/32-slot knockout, seeded from participants' `seed` field (standard 1-vs-N-, 4-vs-N-3-style positions). Enter set scores in a slot and click the winner; the winner is auto-propagated to the next round's slot.
 - **Pending** — every state-changing API call appends an entry to `app/admin/data/pending.json` along with a full pre-mutation snapshot of `tournament.json`. The tab lists those entries newest-first with a server-rendered summary.
 - **Settings** — rename the tournament. Manual **Push backup snapshot** button. Live JSON dump of the publish-status object for debugging.
-- **Header status light** — 🟢 synced / 🟡 pending or pushing / 🟡 "AWS not configured" / 🔴 push failed (no auto-retry — click again). **Publish** button next to it.
+- **Header status lights** — two indicators. (1) **Sync** (multi-operator): 🟢 in-sync · `nodeId` / 🟡 sync offline / 🔴 N sync conflict(s); hidden when sync isn't configured. Conflicts also pop a toast. (2) **Publish** (result site): 🟢 synced / 🟡 pending or pushing / 🟡 "AWS not configured" / 🔴 push failed (no auto-retry — click again), with the **Publish** button.
 
 ### Result site (S3)
 
@@ -51,3 +51,13 @@ Strategy interface: `generateNextRound(group) → Round` in `app/admin/src/pairi
 - **Manual** — admin adds matches via the inline form in Scoring; no auto-generation.
 
 `generateNextRound()` for Swiss derives each player's `{ points, opponents, hadBye }` from the group's `rounds` history before delegating to the algorithm.
+
+## Multi-operator sync
+
+Optional, optimistic, non-blocking sync so several operators can edit one tournament from separate laptops. Off by default (single-laptop behaviour unchanged); enabled by configuring a shared store.
+
+- **Per-record revisions.** Match, bracket slot, participant, group, bracket and registrant records each carry `{ rev, updatedAt, lastEditor }` (see `revisionFields` in `app/admin/src/schema.ts`). `touch()` in `app/admin/src/rev.ts` bumps `rev` on every modification; a global `tournament.rev` bumps on every `mutate()`.
+- **Optimistic concurrency (OCC).** Edit requests for the hot paths (group match `PATCH`, bracket slot `PATCH`, participant + registrant `PATCH`) carry a `baseRev`. If it no longer matches, the route throws `ConflictError` (`rev.ts`) → HTTP **409** with the current record. The admin UI catches it (`saveEdit` in `app.js`) and does a **reload + notify** (toast), never clobbering.
+- **Live updates.** The admin polls `GET /api/state/rev` (~2 s) and re-fetches when the global rev changes, so other operators' edits appear without a manual refresh.
+- **Canonical store + merge.** `app/admin/src/sync.ts` keeps a canonical `tournament.json` in S3 (private prefix) in step using conditional `PutObject` (`If-Match`/ETag). Each tick: pull → `merge(base, local, remote)` (`app/admin/src/merge.ts`, a 3-way per-record merge; base = last-synced state, persisted as `sync-base.json`) → write merged locally → push with `If-Match`; on 412 it re-pulls. Disjoint edits combine cleanly; same-record conflicts are last-write-wins by `updatedAt` and reported via `GET /api/sync/status` (acked with `POST /api/sync/conflicts/ack`). Offline pulls/pushes fail soft and retry.
+- **Config (`app/.env`).** `TP_NODE_ID` (per-laptop label), `TP_STATE_KEY` (default `private/state/tournament.json`), `TP_SYNC_INTERVAL_MS`. **`TP_SYNC_DIR`** selects a `FilesystemStore` (one shared folder, same If-Match contract) instead of S3 — zero AWS, used by `app/tests/sync.test.mjs` and handy for local two-laptop testing. All laptops share one operator key (`tp-operator`); the CloudFormation publisher policy grants `s3:GetObject`/`s3:PutObject` on `private/state/*`.

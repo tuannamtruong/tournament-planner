@@ -1,5 +1,20 @@
 import { z } from 'zod';
 
+// Per-record optimistic-concurrency metadata. `rev` is a per-record change
+// counter (bumped every time THIS record is mutated — see touch() in rev.ts),
+// used both for OCC (a stale baseRev → 409 Conflict) and for the multi-laptop
+// merge (higher rev wins; equal rev + differing content → conflict, broken by
+// `updatedAt`). `lastEditor` is the node id (TP_NODE_ID) of the laptop that last
+// changed it, for display. All OPTIONAL — an absent field means rev 0 / never
+// edited, so pre-existing tournament.json files and in-code record literals
+// (pairing, bracket creation, fixtures) parse and construct unchanged. touch()
+// and the merge/OCC logic always read them through `?? 0` / `?? ''`.
+export const revisionFields = {
+  rev: z.number().int().nonnegative().optional(),
+  updatedAt: z.string().optional(),
+  lastEditor: z.string().optional(),
+};
+
 export const SetScore = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]);
 export const Score = z.array(SetScore).max(5);
 
@@ -20,6 +35,7 @@ export const Participant = z.object({
   category: z.string().default(''),
   class: z.string().default(''),
   withdrawn: z.boolean().default(false),
+  ...revisionFields,
 });
 export type Participant = z.infer<typeof Participant>;
 
@@ -38,6 +54,7 @@ export const Registrant = z.object({
   present: z.boolean().default(false),
   paid: z.boolean().default(false),
   paidAmount: z.number().nonnegative().default(0),
+  ...revisionFields,
 });
 export type Registrant = z.infer<typeof Registrant>;
 
@@ -97,6 +114,7 @@ export const Match = z.object({
   walkover: Walkover.default(null),
   startedAt: z.string().nullable().default(null),
   finishedAt: z.string().nullable().default(null),
+  ...revisionFields,
 });
 export type Match = z.infer<typeof Match>;
 
@@ -121,6 +139,7 @@ export const Group = z.object({
   pointSystemId: z.string().nullable().default(null),
   members: z.array(z.string()),
   rounds: z.array(Round).default([]),
+  ...revisionFields,
 });
 export type Group = z.infer<typeof Group>;
 
@@ -140,6 +159,7 @@ export const BracketSlot = z.object({
   winner: z.string().nullable(),
   startedAt: z.string().nullable().default(null),
   finishedAt: z.string().nullable().default(null),
+  ...revisionFields,
 });
 export type BracketSlot = z.infer<typeof BracketSlot>;
 
@@ -162,6 +182,7 @@ export const Bracket = z.object({
   pointSystemId: z.string().nullable().default(null),
   size: z.number().int().positive(),
   rounds: z.array(BracketRound),
+  ...revisionFields,
 });
 export type Bracket = z.infer<typeof Bracket>;
 
@@ -232,6 +253,11 @@ export const Tournament = z.preprocess((raw) => {
     name: z.string(),
     updatedAt: z.string(),
   }),
+  // Global change counter bumped on every mutate(). The admin UI polls
+  // GET /api/state/rev and re-fetches when this changes, so other operators'
+  // edits propagate without a manual refresh. Per-record rev (see
+  // revisionFields) drives conflict detection; this one drives the live poll.
+  rev: z.number().int().nonnegative().default(0),
   participants: z.array(Participant).default([]),
   // Per-person check-in + fee state, keyed by normalised person name. See Registrant.
   registrants: z.record(z.string(), Registrant).default({}),

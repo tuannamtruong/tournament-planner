@@ -76,6 +76,17 @@ Resources:
             Effect: Allow
             Action: s3:PutObject
             Resource: !Sub "arn:aws:s3:::${ResultBucket}/data/*"
+          # Multi-operator sync: every laptop reads + conditionally writes the
+          # canonical tournament.json under private/state/ (the optimistic-
+          # concurrency store; If-Match is a request header, needs no extra
+          # permission). This prefix has NO public-read grant in the bucket
+          # policy above, so spectators can't read the full state.
+          - Sid: SyncCanonicalState
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource: !Sub "arn:aws:s3:::${ResultBucket}/private/state/*"
 
 Outputs:
   BucketName:

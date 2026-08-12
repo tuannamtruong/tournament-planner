@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { z } from 'zod';
 import { mutate } from '../storage.ts';
+import { touch, assertRev } from '../rev.ts';
 import { propagate as propagateBracketWinner } from './knockout.ts';
 
 // One player on an entry: their display name + own club. Singles send one,
@@ -20,6 +21,7 @@ const PatchParticipant = z.object({
   class: z.string().min(1).optional(),
   withdrawn: z.boolean().optional(),
   players: z.array(PlayerInput).min(1).max(2).optional(),
+  baseRev: z.number().int().nonnegative().optional(),
 });
 
 // Per-person check-in + fee patch. `key` is the normalised person name the UI
@@ -29,6 +31,7 @@ const PatchRegistrant = z.object({
   present: z.boolean().optional(),
   paid: z.boolean().optional(),
   paidAmount: z.number().nonnegative().optional(),
+  baseRev: z.number().int().nonnegative().optional(),
 });
 
 const Pair = z.object({ partnerId: z.string().min(1) });
@@ -72,7 +75,7 @@ export async function participantRoutes(app: FastifyInstance) {
         for (const p of s.participants) for (const nm of p.players) names.add(key(nm));
         for (const k of names) {
           const cur = s.registrants[k] ?? { club: '', present: false, paid: false, paidAmount: 0 };
-          s.registrants[k] = { ...cur, present: true };
+          s.registrants[k] = touch({ ...cur, present: true });
         }
         return s;
       },
@@ -82,12 +85,13 @@ export async function participantRoutes(app: FastifyInstance) {
 
   app.patch('/api/registrants/:key', async (req) => {
     const { key } = req.params as { key: string };
-    const patch = PatchRegistrant.parse(req.body);
+    const { baseRev, ...patch } = PatchRegistrant.parse(req.body);
     return mutate(
       { action: 'patch_registrant', target: key, payload: patch },
       (s) => {
         const cur = s.registrants[key] ?? { club: '', present: false, paid: false, paidAmount: 0 };
-        s.registrants[key] = { ...cur, ...patch };
+        assertRev(cur, baseRev, 'This person’s check-in/fee');
+        s.registrants[key] = touch({ ...cur, ...patch });
         return s;
       },
     );
@@ -101,6 +105,7 @@ export async function participantRoutes(app: FastifyInstance) {
       (s) => {
         const p = s.participants.find(p => p.id === id);
         if (!p) throw new Error(`participant ${id} not found`);
+        assertRev(p, patch.baseRev, 'This participant');
         if (patch.category !== undefined) p.category = patch.category;
         if (patch.class !== undefined) p.class = patch.class;
         if (patch.withdrawn !== undefined) p.withdrawn = patch.withdrawn;
@@ -116,6 +121,7 @@ export async function participantRoutes(app: FastifyInstance) {
           });
           p.players = patch.players.map(pl => pl.name);
         }
+        touch(p);
         return s;
       },
     );
@@ -137,6 +143,7 @@ export async function participantRoutes(app: FastifyInstance) {
         if (a.category !== b.category || a.class !== b.class) throw new Error('partners must share category and class');
         if (a.players.length !== 1 || b.players.length !== 1) throw new Error('both participants must be unpaired');
         a.players = [a.players[0], b.players[0]];
+        touch(a);
         s.participants = s.participants.filter(p => p.id !== b.id);
         s.groups.forEach(g => { g.members = g.members.filter(m => m !== b.id); });
         return s;
@@ -155,6 +162,7 @@ export async function participantRoutes(app: FastifyInstance) {
         if (!p) throw new Error(`participant ${id} not found`);
         if (p.players.length < 2) throw new Error('participant is not a paired team');
         const partnerName = p.players.pop()!;
+        touch(p);
         s.participants.push({
           id: nanoid(8), withdrawn: false,
           category: p.category, class: p.class, players: [partnerName],
@@ -208,6 +216,7 @@ export async function participantRoutes(app: FastifyInstance) {
         if (!p) throw new Error(`participant ${id} not found`);
         p.withdrawn = true;
         const now = new Date().toISOString();
+        touch(p, now);
 
         for (const g of s.groups) {
           if (!g.members.includes(id)) continue;
@@ -221,6 +230,7 @@ export async function participantRoutes(app: FastifyInstance) {
               m.score = [];
               m.status = 'done';
               if (!m.finishedAt) m.finishedAt = now;
+              touch(m, now);
             }
           }
         }
@@ -241,6 +251,7 @@ export async function participantRoutes(app: FastifyInstance) {
             slot.status = 'done';
             slot.winner = oppId;
             if (!slot.finishedAt) slot.finishedAt = now;
+            touch(slot, now);
             propagateBracketWinner(kb, round.roundNo, slot.slot, oppId);
             break;
           }
@@ -259,6 +270,7 @@ export async function participantRoutes(app: FastifyInstance) {
         const p = s.participants.find(p => p.id === id);
         if (!p) throw new Error(`participant ${id} not found`);
         p.withdrawn = false;
+        touch(p);
         return s;
       },
     );

@@ -10,6 +10,37 @@
   --card: #fff;
 }
 
+/* Live-update / conflict toasts (see notify() in app.js). Fixed bottom-right,
+   above everything, auto-dismissing. */
+#toast-host {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 1000;
+  max-width: min(360px, 90vw);
+}
+.toast {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  font-size: 0.9rem;
+  opacity: 1;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.toast-warn { border-left-color: var(--amber); }
+.toast-out { opacity: 0; transform: translateY(6px); }
+
+/* Sync indicator sits left of the publish indicator in the header. */
+#sync-text { font-size: 0.85rem; color: var(--muted); }
+.status-sep { width: 1px; height: 1.1em; background: var(--border); display: inline-block; margin: 0 0.35rem; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -635,6 +666,10 @@ pre { background: #f3f4f6; padding: 0.75rem; border-radius: 4px; overflow: auto;
 .standings-clickable { cursor: pointer; }
 .standings-clickable:hover { outline: 2px solid #c7d2fe; outline-offset: 1px; }
 
+/* Matches-tab card + round headings link back to the group / bracket definition. */
+h3 a.card-jump, h4 a.card-jump { color: inherit; text-decoration: none; }
+h3 a.card-jump:hover, h4 a.card-jump:hover { text-decoration: underline; text-decoration-style: dotted; }
+
 .h2h { font-size: 0.8rem; width: auto; }
 .h2h th, .h2h td { padding: 0.3rem 0.5rem; text-align: center; font-variant-numeric: tabular-nums; }
 .h2h th.rowhead { text-align: left; }
@@ -798,6 +833,10 @@ tr.info-row > td { background: #f8fafc; border-top: none; }
 .info-pair { margin-left: auto; }
 .pair-select { font-size: 0.85rem; max-width: 14rem; }
 .pair-row { margin-top: 0.3rem; }
+/* First-round "edit pairings" slot: two participant dropdowns stacked. */
+.bracket-match.pairing-edit { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.4rem 0.5rem; }
+.bracket-match.pairing-edit .pair-select { max-width: 100%; width: 100%; }
+.pairing-vs { text-align: center; font-size: 0.7rem; color: var(--muted); }
 tr.partner-row > td { border-top: none; }
 
 /* Per-person Paid/Amount cells (Player tab): one control per partner, stacked. */

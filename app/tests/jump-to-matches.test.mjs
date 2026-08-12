@@ -37,6 +37,29 @@ await test('jump-to-matches', async ({ base, api }) => {
     assert(cardVisible, "the clicked group's matches card should be visible");
     assert(flashApplied, "the clicked group's matches card should flash");
     console.log('✓ clicking standings jumps to Matches tab and flashes the group card');
+
+    // Inverse: from the Matches tab, the card heading link jumps back to the
+    // group's definition card on the Groups tab and flashes it.
+    await page.click(`#matches-group-${g.id} h3 a.card-jump`);
+    await page.waitForTimeout(300);
+    const groupsActiveAfter = await page.isVisible('section[data-tab="groups"].active');
+    const defVisible = await page.isVisible(`#group-${g.id}`);
+    const defFlash = await page.evaluate((id) => document.getElementById(id)?.classList.contains('flash'), `group-${g.id}`);
+    assert(groupsActiveAfter, "clicking the matches card heading should activate the Groups tab");
+    assert(defVisible, "the group's definition card should be visible");
+    assert(defFlash, "the group's definition card should flash");
+    console.log('✓ clicking a matches card heading jumps back to the Groups tab and flashes the group card');
+
+    // A round heading inside the matches card jumps to the same destination.
+    await page.click('nav#tabs a[data-tab="matches"]');
+    await page.waitForSelector(`#matches-group-${g.id} h4 a.card-jump`);
+    await page.click(`#matches-group-${g.id} h4 a.card-jump`);
+    await page.waitForTimeout(300);
+    const roundGroupsActive = await page.isVisible('section[data-tab="groups"].active');
+    const roundDefFlash = await page.evaluate((id) => document.getElementById(id)?.classList.contains('flash'), `group-${g.id}`);
+    assert(roundGroupsActive, "clicking a round heading should activate the Groups tab");
+    assert(roundDefFlash, "clicking a round heading should flash the group's definition card");
+    console.log('✓ clicking a round heading jumps to the same destination as the card heading');
   } finally {
     await browser.close();
   }

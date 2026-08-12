@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
+import { ConflictError } from './rev.ts';
 import { startLocalSnapshots, dataFilePath, load } from './storage.ts';
 import { getStatus, refreshPendingCount, deriveViews } from './publish.ts';
 import { stateRoutes } from './routes/state.ts';
@@ -12,6 +13,8 @@ import { matchRoutes } from './routes/matches.ts';
 import { knockoutRoutes } from './routes/knockout.ts';
 import { publishRoutes } from './routes/publish.ts';
 import { pendingRoutes } from './routes/pending.ts';
+import { syncRoutes } from './routes/sync.ts';
+import { startSync, nudgeSync } from './sync.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_DIR = path.resolve(__dirname, '../public');
@@ -34,6 +37,17 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 app.setErrorHandler((err, _req, reply) => {
+  // Optimistic-concurrency conflict: another operator changed this record first.
+  // Hand the client the current server value so it can reload + notify (no
+  // clobber). Status 409 lets api.js distinguish this from a generic error.
+  if (err instanceof ConflictError) {
+    return reply.code(409).send({
+      statusCode: 409,
+      error: 'Conflict',
+      message: err.message,
+      current: err.current,
+    });
+  }
   if (err instanceof ZodError) {
     const parts = err.errors.map((e) => {
       const field = e.path.length ? String(e.path[0]) : 'request';
@@ -80,8 +94,18 @@ await app.register(matchRoutes);
 await app.register(knockoutRoutes);
 await app.register(publishRoutes);
 await app.register(pendingRoutes);
+await app.register(syncRoutes);
+
+// After any successful state-changing request, nudge a sync so other laptops
+// see the edit within ~one round-trip instead of waiting for the next tick.
+app.addHook('onResponse', async (req, reply) => {
+  if (req.method !== 'GET' && reply.statusCode < 400 && req.url.startsWith('/api/')) {
+    nudgeSync();
+  }
+});
 
 startLocalSnapshots();
+startSync();
 await refreshPendingCount();
 
 const port = Number(process.env.PORT ?? 37325);

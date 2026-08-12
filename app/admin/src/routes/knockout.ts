@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { mutate } from '../storage.ts';
+import { touch, assertRev } from '../rev.ts';
 import { Score, MatchStatus, Walkover, type Bracket, type BracketRound, type BracketSlot } from '../schema.ts';
 
 const CreateBracket = z.object({
@@ -25,6 +26,8 @@ const PatchSlot = z.object({
   status: MatchStatus.optional(),
   winner: z.string().nullable().optional(),
   walkover: Walkover.optional(),
+  // Optimistic-concurrency token: the slot.rev the client read (see ScorePatch).
+  baseRev: z.number().int().nonnegative().optional(),
 });
 
 function nextPow2(n: number): number {
@@ -156,6 +159,8 @@ export async function knockoutRoutes(app: FastifyInstance) {
         if (!round) throw new Error(`bracket round ${roundNo} not found`);
         const slot = round.slots.find(s => s.slot === slotNo);
         if (!slot) throw new Error(`slot ${slotNo} not found`);
+        assertRev(slot, patch.baseRev, 'This bracket slot');
+        const playersEdited = patch.p1 !== undefined || patch.p2 !== undefined;
         if (patch.p1 !== undefined) slot.p1 = patch.p1;
         if (patch.p2 !== undefined) slot.p2 = patch.p2;
         if (patch.court !== undefined) slot.court = patch.court;
@@ -188,6 +193,11 @@ export async function knockoutRoutes(app: FastifyInstance) {
             propagate(kb, roundNo, slotNo, patch.winner);
           }
         }
+        // Manual first-round pairing edits ("set who plays who") can turn a BYE
+        // into a real match or vice-versa, so re-derive the auto-advance for the
+        // slot and keep the next round's fed cell in sync.
+        if (playersEdited && roundNo === 1) rederiveByeAdvance(kb, slot, now);
+        touch(slot, now);
         return state;
       },
     );
@@ -207,6 +217,35 @@ export async function knockoutRoutes(app: FastifyInstance) {
   });
 }
 
+// A round-1 slot's players just changed. If it now holds a lone player it's a
+// BYE — auto-advance them (mirrors the create route). If it holds two players
+// (a real match) or is empty, undo any prior BYE auto-advance and clear the
+// next-round cell it had fed. Never touches a slot that already has a real
+// score, so a mistaken late edit can't silently erase results.
+function rederiveByeAdvance(kb: Bracket, slot: BracketSlot, now: string): void {
+  const present = (p: string | null) => (p && p !== '__bye__' ? p : null);
+  const p1 = present(slot.p1);
+  const p2 = present(slot.p2);
+  const lone = p1 && !p2 ? p1 : !p1 && p2 ? p2 : null;
+  if (slot.score.length > 0) return;
+  if (lone) {
+    slot.winner = lone;
+    slot.status = 'done';
+    if (!slot.finishedAt) slot.finishedAt = now;
+    propagate(kb, 1, slot.slot, lone);
+  } else {
+    slot.winner = null;
+    slot.status = 'pending';
+    slot.finishedAt = null;
+    const nextRound = kb.rounds.find(r => r.roundNo === 2);
+    const nextSlot = nextRound?.slots.find(s => s.slot === Math.ceil(slot.slot / 2));
+    if (nextSlot) {
+      if (slot.slot % 2 === 1) nextSlot.p1 = null; else nextSlot.p2 = null;
+      touch(nextSlot, now);
+    }
+  }
+}
+
 export function propagate(kb: Bracket, roundNo: number, slotNo: number, winnerId: string): void {
   const nextRound = kb.rounds.find(r => r.roundNo === roundNo + 1);
   if (!nextRound) return;
@@ -215,4 +254,5 @@ export function propagate(kb: Bracket, roundNo: number, slotNo: number, winnerId
   if (!nextSlot) return;
   if (slotNo % 2 === 1) nextSlot.p1 = winnerId;
   else nextSlot.p2 = winnerId;
+  touch(nextSlot);
 }

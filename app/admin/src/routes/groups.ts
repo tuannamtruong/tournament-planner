@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { mutate } from '../storage.ts';
+import { touch } from '../rev.ts';
 import { GroupMode } from '../schema.ts';
 import { generateNextRound } from '../pairing/index.ts';
 
@@ -35,6 +36,7 @@ export async function groupRoutes(app: FastifyInstance) {
         const g = s.groups.find(g => g.id === id);
         if (!g) throw new Error(`group ${id} not found`);
         Object.assign(g, patch);
+        touch(g);
         return s;
       },
     );
@@ -56,6 +58,9 @@ export async function groupRoutes(app: FastifyInstance) {
         const g = s.groups.find(g => g.id === id);
         if (!g) throw new Error(`group ${id} not found`);
         const withdrawn = new Set(s.participants.filter(p => p.withdrawn).map(p => p.id));
+        // New matches start at rev 0 (unedited); the group's identity fields are
+        // unchanged, so neither is touch()'d. The first score edit per match
+        // engages OCC via baseRev:0.
         const round = generateNextRound(g, withdrawn);
         g.rounds.push(round);
         return s;

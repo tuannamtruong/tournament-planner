@@ -8,6 +8,15 @@ export async function stateRoutes(app: FastifyInstance) {
     return load();
   });
 
+  // Cheap liveness probe for the admin UI's live-update poll: returns just the
+  // global change counter + timestamp. The client polls this every couple of
+  // seconds and only re-fetches /api/state when `rev` moves, so another
+  // operator's edits propagate without a manual refresh.
+  app.get('/api/state/rev', async () => {
+    const s = await load();
+    return { rev: s.rev ?? 0, updatedAt: s.tournament.updatedAt };
+  });
+
   app.put('/api/state/name', async (req) => {
     const body = req.body as { name?: string };
     if (!body?.name) throw new Error('name required');

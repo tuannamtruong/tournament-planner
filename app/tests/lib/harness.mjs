@@ -54,7 +54,7 @@ function defaultSeed() {
 // Boots an isolated server. Returns { base, port, dataFile, api, stop }.
 // Registers stop() on process exit/SIGINT/SIGTERM so the temp dir is always
 // reaped, even on Ctrl-C in serve mode.
-export async function startServer({ port, seed } = {}) {
+export async function startServer({ port, seed, env: extraEnv } = {}) {
   port ??= await pickFreePort();
   const tmp = mkdtempSync(path.join(tmpdir(), 'tp-test-'));
   const dataFile = path.join(tmp, 'tournament.json');
@@ -63,7 +63,7 @@ export async function startServer({ port, seed } = {}) {
   // Spawn detached so the process gets its own group; cleanup kills the group.
   const server = spawn(TSX, [ENTRY], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), TP_DATA_FILE: dataFile, TP_BUCKET: '' },
+    env: { ...process.env, PORT: String(port), TP_DATA_FILE: dataFile, TP_BUCKET: '', ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });

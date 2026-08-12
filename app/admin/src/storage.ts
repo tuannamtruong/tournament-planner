@@ -52,6 +52,7 @@ export async function mutate(
     const next = await fn(draft);
     const ts = new Date().toISOString();
     next.tournament.updatedAt = ts;
+    next.rev = (next.rev ?? 0) + 1;
     next.auditLog.push({ ts, target: '', ...audit });
     if (next.auditLog.length > 5000) next.auditLog.splice(0, next.auditLog.length - 5000);
     const validated = Tournament.parse(next);
@@ -87,6 +88,29 @@ export async function restoreFromPending(index: number): Promise<TournamentT> {
   });
   writeChain = result.then(() => undefined, () => undefined);
   return result;
+}
+
+/**
+ * Run work that reads — and optionally replaces — the whole state, serialized
+ * on the same writeChain as mutate() so it can't interleave with a local edit.
+ * Used by the multi-laptop sync loop to merge a freshly-pulled remote state
+ * against the latest local state and write the result atomically.
+ */
+export async function withState<R>(
+  fn: (current: TournamentT) => Promise<{ next?: TournamentT; result: R }>,
+): Promise<R> {
+  const run = writeChain.then(async () => {
+    const current = await load();
+    const { next, result } = await fn(current);
+    if (next) {
+      const validated = Tournament.parse(next);
+      await writeAtomic(validated);
+      cache = validated;
+    }
+    return result;
+  });
+  writeChain = run.then(() => undefined, () => undefined);
+  return run;
 }
 
 let snapshotTimer: NodeJS.Timeout | null = null;
